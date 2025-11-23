@@ -27,3 +27,14 @@
 - Windows: 从 Microsoft Store 直接安装 https://apps.microsoft.com/detail/9n9d7d1mv4sf
 - Linux: 依赖 GTK库，提供 deb 安装包，支持 x64 与 arm64， https://github.com/cycbox/cycbox/releases
 
+## 应用截图
+
+![](/assets/zh01.png)
+
+![](/assets/zh02.png)
+
+![](/assets/zh03.png)
+
+![](/assets/zh04.png)
+
+![](/assets/zh05.png)

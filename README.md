@@ -26,3 +26,15 @@ Official Website: https://cycbox.io
 
 *   **Windows:** Install directly from the Microsoft Store: https://apps.microsoft.com/detail/9n9d7d1mv4sf
 *   **Linux:** Depends on the GTK library. A deb package is provided with support for x64 and arm64 architectures: https://github.com/cycbox/cycbox/releases
+
+## Screenshots
+
+![](/assets/en01.png)
+
+![](/assets/en02.png)
+
+![](/assets/en03.png)
+
+![](/assets/en04.png)
+
+![](/assets/en05.png)
