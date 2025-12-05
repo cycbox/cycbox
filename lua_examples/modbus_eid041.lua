@@ -20,7 +20,7 @@
 --   Read 4 registers from 0x0002: Float temperature + Float humidity
 
 -- Parse Modbus RTU response and extract register data
-function on_message()
+function on_receive()
     local payload = message:get_payload()
 
     -- Minimum Modbus response: Address(1) + Function(1) + ByteCount(1) = 3 bytes
@@ -100,11 +100,11 @@ function on_message()
     -- Add values to charts
     -- Prefer float values if available, otherwise use int values
     if temp_int ~= nil then
-        message:add_float_value("Temperature (°C)", temp_int, "Sensor")
+        message:add_float_value("Temperature (°C)", temp_int)
     end
 
     if hum_int ~= nil then
-        message:add_float_value("Humidity (%RH)", hum_int, "Sensor")
+        message:add_float_value("Humidity (%RH)", hum_int)
     end
 
     -- Return true because we added values to the message

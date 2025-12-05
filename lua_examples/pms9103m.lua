@@ -21,7 +21,7 @@
 --   Bytes 20-21: Particles >5.0μm per 0.1L air
 --   Bytes 22-23: Particles >10μm per 0.1L air
 
-function on_message()
+function on_receive()
     -- Get the payload from the message
     local payload = message:get_payload()
 
@@ -50,24 +50,24 @@ function on_message()
     local particles_10um = read_u16_be(payload, 23)
 
     -- Add PM1.0 values to chart (CF=1 vs Atmospheric)
-    message:add_int_value("PM1.0 (μg/m³)", pm1_0_cf1, "CF=1")
-    message:add_int_value("PM1.0 (μg/m³)", pm1_0_atm, "ATM")
+    message:add_int_value("PM1.0-CF1", pm1_0_cf1)
+    message:add_int_value("PM1.0-ATM", pm1_0_atm)
 
     -- Add PM2.5 values to chart (CF=1 vs Atmospheric)
-    message:add_int_value("PM2.5 (μg/m³)", pm2_5_cf1, "CF=1")
-    message:add_int_value("PM2.5 (μg/m³)", pm2_5_atm, "ATM")
+    message:add_int_value("PM2.5-CF1", pm2_5_cf1)
+    message:add_int_value("PM2.5-ATM", pm2_5_atm)
 
     -- Add PM10 values to chart (CF=1 vs Atmospheric)
-    message:add_int_value("PM10 (μg/m³)", pm10_cf1, "CF=1")
-    message:add_int_value("PM10 (μg/m³)", pm10_atm, "ATM")
+    message:add_int_value("PM10-CF1", pm10_cf1)
+    message:add_int_value("PM10-ATM", pm10_atm)
 
-    -- Add particle counts to chart (all in same group for comparison)
-    message:add_int_value("Particles >0.3μm", particles_0_3um, "Particle Count (per 0.1L)")
-    message:add_int_value("Particles >0.5μm", particles_0_5um, "Particle Count (per 0.1L)")
-    message:add_int_value("Particles >1.0μm", particles_1_0um, "Particle Count (per 0.1L)")
-    message:add_int_value("Particles >2.5μm", particles_2_5um, "Particle Count (per 0.1L)")
-    message:add_int_value("Particles >5.0μm", particles_5_0um, "Particle Count (per 0.1L)")
-    message:add_int_value("Particles >10μm", particles_10um, "Particle Count (per 0.1L)")
+    -- Add particle counts to chart
+    message:add_int_value("Particles >0.3μm", particles_0_3um)
+    message:add_int_value("Particles >0.5μm", particles_0_5um)
+    message:add_int_value("Particles >1.0μm", particles_1_0um)
+    message:add_int_value("Particles >2.5μm", particles_2_5um)
+    message:add_int_value("Particles >5.0μm", particles_5_0um)
+    message:add_int_value("Particles >10μm", particles_10um)
 
     -- Log parsed data
     log("info", string.format(
