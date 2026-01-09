@@ -22,8 +22,8 @@
 --   Bytes 22-23: Particles >10μm per 0.1L air
 
 function on_receive()
-    -- Get the payload from the message
-    local payload = message:get_payload()
+    -- Access the payload directly as a field (not a method)
+    local payload = message.payload
 
     -- PMS9103M payload should be 26 bytes
     if #payload ~= 26 then
@@ -104,3 +104,22 @@ end
 -- - ATM: Concentration in atmospheric environment (actual air quality)
 -- - For outdoor air quality monitoring, use ATM values
 -- - For indoor air quality or controlled environments, use CF=1 values
+--
+-- Lua API Reference (for this script):
+-- Message fields:
+--   message.payload       - Raw payload bytes (string)
+--   message.frame         - Full frame including prefix/suffix (string)
+--   message.timestamp     - Message timestamp in microseconds
+--   message.connection_id - Source connection ID
+-- Message methods:
+--   message:add_int_value(id, value)    - Add integer value for charting
+--   message:add_float_value(id, value)  - Add float value for charting
+--   message:add_string_value(id, value) - Add string value
+-- Binary read helpers (1-based indexing):
+--   read_u8(bytes, offset)     - Read unsigned 8-bit integer
+--   read_u16_be(bytes, offset) - Read unsigned 16-bit big-endian
+--   read_u16_le(bytes, offset) - Read unsigned 16-bit little-endian
+--   read_u32_be(bytes, offset) - Read unsigned 32-bit big-endian
+--   (also: read_i8, read_i16_be/le, read_i32_be/le, read_float_be/le, read_double_be/le)
+-- Utility functions:
+--   log(level, message) - Log a message ("debug", "info", "warn", "error")

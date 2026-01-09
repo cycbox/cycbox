@@ -2,16 +2,15 @@
 
 [中文版本](./README_CN.md)
 
-⚠️ **Note: CycBox is a non-open-source project. This repository provides the open-source CycBox WebAssembly plugin development SDK and Lua script examples.**
+⚠️ **Note: CycBox is a non-open-source project. This repository provides the open-source Lua script examples.**
 
 [CycBox](https://cycbox.io/) is a powerful and highly extensible IoT debugging toolkit, featuring high performance, and cross-platform support.
 
 ## Main Features
 
-- Integrated serial port and TCP network debugging with data pass-through between both
+- Integrated serial port and network debugging with data pass-through between both
 - Features 1ms high-precision timer with 1ms low-latency response
 - Message processing and response through Lua scripting
-- Supports WebAssembly plugins for complex custom functionality
 - Data visualization panel with chart plotting, snapshot capture, and data export
 - Search function supports keyword highlighting and filtering to show only matched messages
 - Supports multiple standard protocols like AT commands and Modbus RTU, with custom frame structure configuration

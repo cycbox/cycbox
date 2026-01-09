@@ -1,5 +1,5 @@
 -- EID041 Modbus Temperature & Humidity Sensor Parser
--- This script parses EID041 Modbus RTU responses (Function Code 0x04)
+-- This script demonstrates automatic polling and using codec-parsed values
 --
 -- Modbus RTU Frame format:
 --   Slave Address: 1 byte
@@ -13,19 +13,72 @@
 --   0x0001 (1 reg):  Humidity (uint16, 0.1%RH resolution)
 --   0x0002-0x0003 (2 regs): Temperature (float32, big-endian, °C)
 --   0x0004-0x0005 (2 regs): Humidity (float32, big-endian, %RH)
---
--- Common read scenarios:
---   Read 2 registers from 0x0000: Temperature (int) + Humidity (int)
---   Read 6 registers from 0x0000: All data (int temp, int hum, float temp, float hum)
---   Read 4 registers from 0x0002: Float temperature + Float humidity
 
--- Parse Modbus RTU response and extract register data
+-- ============================================================================
+-- Configuration
+-- ============================================================================
+
+local SLAVE_ADDR = 1          -- Modbus slave address
+local START_ADDR = 0x0000     -- Start reading from register 0
+local NUM_REGISTERS = 6       -- Read all 6 registers (2 int + 4 float)
+local POLL_INTERVAL = 1000    -- Poll every 2 seconds (2000ms)
+
+-- ============================================================================
+-- Global State
+-- ============================================================================
+
+local last_poll_time = 0      -- Track last poll time for timer
+
+-- ============================================================================
+-- Lifecycle Hooks
+-- ============================================================================
+
+-- Called once when engine starts
+function on_start()
+    log("info", "=== EID041 Modbus Sensor Script Started ===")
+    log("info", string.format("Configuration: Slave=%d, Start=0x%04X, Registers=%d",
+        SLAVE_ADDR, START_ADDR, NUM_REGISTERS))
+    log("info", string.format("Poll interval: %dms", POLL_INTERVAL))
+end
+
+-- Called every 100ms for periodic tasks
+function on_timer(elapsed_ms)
+    -- Check if enough time has passed since last poll
+    if elapsed_ms - last_poll_time >= POLL_INTERVAL then
+        -- Send Modbus Read Input Registers request
+        -- Function signature: modbus_read_input_registers(slave, start, qty, delay, connection_id)
+        local success = modbus_read_input_registers(
+            SLAVE_ADDR,      -- slave address
+            START_ADDR,      -- starting register address
+            NUM_REGISTERS,   -- number of registers to read
+            0,               -- send immediately (0ms delay)
+            nil              -- use default connection (can specify connection_id if multiple)
+        )
+
+        if success then
+            log("debug", string.format(
+                "Polling EID041: slave=%d, start=0x%04X, qty=%d",
+                SLAVE_ADDR, START_ADDR, NUM_REGISTERS
+            ))
+        else
+            log("warn", "Failed to send Modbus read request")
+        end
+
+        last_poll_time = elapsed_ms
+    end
+end
+
+-- ============================================================================
+-- Message Processing
+-- ============================================================================
+
+-- Called for each received message
+-- Demonstrates both codec-parsed values and manual parsing
 function on_receive()
-    local payload = message:get_payload()
+    local payload = message.payload
 
     -- Minimum Modbus response: Address(1) + Function(1) + ByteCount(1) = 3 bytes
     if #payload < 3 then
-        log("warn", string.format("Modbus frame too short: %d bytes", #payload))
         return false
     end
 
@@ -34,79 +87,57 @@ function on_receive()
     local function_code = read_u8(payload, 2)
     local byte_count = read_u8(payload, 3)
 
-    -- Verify function code (should be 0x04 for Read Input Registers)
-    if function_code ~= 0x04 then
-        log("debug", string.format("Not a Read Input Registers response (FC=0x%02X)", function_code))
+    -- Only process Read Input Registers responses (0x04) from our device
+    if function_code ~= 0x04 or slave_addr ~= SLAVE_ADDR then
         return false
     end
 
-    -- Calculate expected frame length: Address(1) + Function(1) + ByteCount(1) + Data(N)
-    local expected_length = 3 + byte_count
-    if #payload < expected_length then
-        log("warn", string.format("Incomplete frame: expected %d bytes, got %d", expected_length, #payload))
-        return false
+    -- ========================================================================
+    -- Use Codec-Parsed Values
+    -- ========================================================================
+    -- The Modbus RTU codec automatically parses responses and creates Value objects
+    -- with IDs: "modbus_rtu_{slave}:input_{30001 + register_address}"
+    --
+    -- For EID041 starting at register 0x0000:
+    --   Register 0x0000 → modbus_rtu_1:input_30001 (Temperature int16)
+    --   Register 0x0001 → modbus_rtu_1:input_30002 (Humidity uint16)
+    --   Register 0x0002 → modbus_rtu_1:input_30003 (Temperature float32 high word)
+    --   Register 0x0003 → modbus_rtu_1:input_30004 (Temperature float32 low word)
+    --   etc.
+
+    -- Get temperature raw value (stored as unsigned by codec)
+    local temp_int_raw = message:get_value(
+        string.format("modbus_rtu_%d:input_%d", slave_addr, 30001 + START_ADDR)
+    )
+
+    -- Get humidity raw value
+    local hum_int_raw = message:get_value(
+        string.format("modbus_rtu_%d:input_%d", slave_addr, 30001 + START_ADDR + 1)
+    )
+
+    if temp_int_raw ~= nil and hum_int_raw ~= nil then
+
+        local temp_int_value = temp_int_raw * 0.1
+
+        local hum_int_value = hum_int_raw * 0.1
+
+        log("info", string.format("Temperature (int16): %.1f°C (raw=%d)",
+            temp_int_value, temp_int_raw))
+        log("info", string.format("Humidity (uint16): %.1f%%RH (raw=%d)",
+            hum_int_value, hum_int_raw))
+
     end
 
-    -- Calculate number of registers (2 bytes per register)
-    local num_registers = byte_count / 2
 
-    if num_registers < 1 then
-        log("warn", "No register data in response")
-        return false
-    end
 
-    -- Data starts at offset 4 (after Address, Function, ByteCount)
-    local data_offset = 4
-
-    -- Variables to store parsed values
-    local temp_int = nil      -- Temperature as int16 (0.1°C)
-    local hum_int = nil       -- Humidity as uint16 (0.1%RH)
-    local temp_float = nil    -- Temperature as float32 (°C)
-    local hum_float = nil     -- Humidity as float32 (%RH)
-
-    -- Parse based on number of registers read
-    -- We assume reading starts from address 0x0000
-
-    if num_registers >= 1 then
-        -- Register 0x0000: Temperature (int16, signed, 0.1°C resolution)
-        local temp_raw = read_i16_be(payload, data_offset)
-        temp_int = temp_raw * 0.1
-
-        log("info", string.format("Temperature (int16): %d -> %.1f°C", temp_raw, temp_int))
-    end
-
-    if num_registers >= 2 then
-        -- Register 0x0001: Humidity (uint16, 0.1%RH resolution)
-        local hum_raw = read_u16_be(payload, data_offset + 2)
-        hum_int = hum_raw * 0.1
-
-        log("info", string.format("Humidity (uint16): %d -> %.1f%%RH", hum_raw, hum_int))
-    end
-
-    if num_registers >= 4 then
-        -- Registers 0x0002-0x0003: Temperature (float32, big-endian)
-        temp_float = read_float_be(payload, data_offset + 4)
-
-        log("info", string.format("Temperature (float32): %.2f°C", temp_float))
-    end
-
-    if num_registers >= 6 then
-        -- Registers 0x0004-0x0005: Humidity (float32, big-endian)
-        hum_float = read_float_be(payload, data_offset + 8)
-
-        log("info", string.format("Humidity (float32): %.2f%%RH", hum_float))
-    end
-
-    -- Add values to charts
-    -- Prefer float values if available, otherwise use int values
-    if temp_int ~= nil then
-        message:add_float_value("Temperature (°C)", temp_int)
-    end
-
-    if hum_int ~= nil then
-        message:add_float_value("Humidity (%RH)", hum_int)
-    end
+    -- ========================================================================
+    -- Debug All Parsed Values (JSON)
+    -- ========================================================================
+    -- Access all codec-parsed values as JSON for debugging
+    local values_json = message.values_json
+    log("info", "All codec-parsed values: " .. values_json)
 
     -- Return true because we added values to the message
-    return true
+    return false
 end
+
