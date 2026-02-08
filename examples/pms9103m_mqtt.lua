@@ -84,7 +84,7 @@ end
 --[[
 id: "serial_assistant"
 version: "1.8.1"
-name: "串口调试助手"
+name: "Serial Assistant"
 configs:
   - # Config 0
     app:

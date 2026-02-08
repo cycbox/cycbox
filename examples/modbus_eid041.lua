@@ -75,20 +75,24 @@ function on_receive()
   local temperature_int_raw = message:get_value(string.format("modbus_rtu_%d:input_%d", slave_addr, 30001 + START_ADDR))
   local humidity_int_raw = message:get_value(string.format("modbus_rtu_%d:input_%d", slave_addr, 30001 + START_ADDR + 1))
 
-  local temperature_int_value = temperature_int_raw * 0.1
-  local humidity_int_value = humidity_int_raw * 0.1
   if temperature_int_raw then
+    local temperature_int_value = temperature_int_raw * 0.1
     message:add_float_value("temperature_int", temperature_int_value)
   end
-  if humidity_int_value then
+  if humidity_int_raw then
+    local humidity_int_value = humidity_int_raw * 0.1
     message:add_float_value("humidity_int", humidity_int_value)
   end
 
   if #payload >= 15 then
     local temperature_float_value = read_float_be(payload, 8)
-    message:add_float_value("temperature_float", temperature_float_value)
+    if temperature_float_value then
+      message:add_float_value("temperature_float", temperature_float_value)
+    end
     local humidity_float_value = read_float_be(payload, 12)
-    message:add_float_value("humidity_float", humidity_float_value)
+    if humidity_float_value then
+      message:add_float_value("humidity_float", humidity_float_value)
+    end
   end
 
   -- Access all codec-parsed values as JSON for debugging

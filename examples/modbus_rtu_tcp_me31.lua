@@ -1,9 +1,7 @@
-
 -- CycBox Lua Script
 -- Documentation: https://cycbox.io/docs/lua-script/
 
 -- ME31-XDXX0400 4-way temperature acquisition module PT100 thermal resistor RS485 network port to Modbus K-type thermocouple
-
 
 --[[
 id: "serial_assistant"
@@ -84,7 +82,7 @@ message_input_groups:
         function_code: write_multiple_registers
         start_address: 2014
         quantity: 10
-        data_value: 43 79 63 42 6F 78 2D 76 31 2E 39 2E 30 00 00 00 00 00 00 00
+        data_value: 43 79 63 42 6F 78 2D 76 31 2E 31 30 2E 30 00 00 00 00 00 00
         connection_id: 1
         data_value_hex_mode: true
 ]]
