@@ -132,13 +132,13 @@ Scripts process messages in the data pipeline. One LuaJIT VM is shared across al
 ### Hook Functions
 
 | Hook                   | When Called                           | Return                         |
-|------------------------|---------------------------------------|--------------------------------|
-| `on_start()`           | Connection starts or script reloads   | —                              |
-| `on_receive()`         | Each RX message after codec/transform | `true` if values were added    |
-| `on_send()`            | Before TX (before encoding)           | `true` to proceed with sending |
-| `on_send_confirm()`    | After successful TX by transport      | `true` if message was modified |
-| `on_timer(elapsed_ms)` | Every 100ms for periodic tasks        | —                              |
-| `on_stop()`            | Before shutdown or script reload      | —                              |
+|------------------------|--------------------------------------------------|--------------------------------|
+| `on_start()`           | Connection starts or script reloads              | —                              |
+| `on_receive()`         | Each RX message after codec/transform            | `true` if values were added    |
+| `on_send()`            | Before TX (before encoding)                      | `true` to proceed with sending |
+| `on_send_confirm()`    | After successful TX by transport                 | `true` if message was modified |
+| `on_timer(elapsed_ms)` | Every 100ms; elapsed_ms is ms since engine start | —                              |
+| `on_stop()`            | Before shutdown or script reload                 | —                              |
 
 ### Message API
 

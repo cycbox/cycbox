@@ -1,0 +1,17 @@
+services:
+  cycbox-cli:
+    image: ghcr.io/cycbox/cycbox:latest
+    # Access serial devices on the host
+    privileged: true
+    volumes:
+      - /dev:/dev
+      - ./config.lua:/config/config.lua:ro
+      - ./data:/data
+    environment:
+      - CYCBOX_PRODUCT_KEY=${CYCBOX_PRODUCT_KEY:-}
+    command:
+      - "--config"
+      - "/config/config.lua"
+      - "--license"
+      - "/data/license.txt"
+    restart: unless-stopped
