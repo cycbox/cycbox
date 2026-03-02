@@ -6,6 +6,10 @@
 
 [CycBox](https://cycbox.io/) is a powerful and highly extensible IoT debugging toolkit, featuring high performance, and cross-platform support.
 
+
+https://github.com/user-attachments/assets/51087a43-ac56-45aa-8bcc-d1713417741e
+
+
 ## Main Features
 
 - Integrated serial port and network debugging with data pass-through between both
