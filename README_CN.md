@@ -4,6 +4,8 @@
 
 [CycBox](https://cycbox.com/) 是一款功能强大且高度可扩展的物联网调试工具包，具有高性能，跨平台，灵活扩展等优点。
 
+https://github.com/user-attachments/assets/51087a43-ac56-45aa-8bcc-d1713417741e
+
 ## 主要功能
 
 - 集成串口与网络调试功能，并支持两者间的数据透传
