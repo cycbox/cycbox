@@ -1,4 +1,3 @@
--- CycBox Lua Script
 -- TCP JSON Client: Sends random JSON values every 100ms
 
 math.randomseed(os.time())
@@ -27,34 +26,29 @@ function on_timer(elapsed_ms)
 end
 
 --[[
-id: "tcp_json_client"
-version: "1.11.0"
-name: "TCP JSON Client"
-configs:
-  - # Config 0
-    app:
-      app_transport: tcp_client
-      app_codec: line_codec
-      app_transformer: disable
-      app_encoding: UTF-8
-    tcp_client:
-      tcp_client_host: 127.0.0.1
-      tcp_client_port: 9000
-      tcp_client_timeout: 5000
-      tcp_client_keepalive: true
-      tcp_client_nodelay: true
-    line_codec:
-      line_codec_line_ending: lf
-message_input_groups:
-  - key: "default"
-    name: "Default"
-    inputs:
-      -
-        type: single
-        id: 1dfe021f-8b75-4d91-9815-8c3ee0a2ad34
-        name: Message
-        text: ''
-        is_hex_mode: false
-        auto_append: none
-        connection_id: 0
+{
+  "version": "1.11.1",
+  "name": "TCP JSON Client",
+  "description": "Send random Json values every 100ms",
+  "configs": [
+    {
+      "app": {
+        "app_transport": "tcp_client",
+        "app_codec": "line_codec",
+        "app_transformer": "disable",
+        "app_encoding": "UTF-8"
+      },
+      "tcp_client": {
+        "tcp_client_host": "127.0.0.1",
+        "tcp_client_port": 9000,
+        "tcp_client_timeout": 5000,
+        "tcp_client_keepalive": true,
+        "tcp_client_nodelay": true
+      },
+      "line_codec": {
+        "line_codec_line_ending": "lf"
+      }
+    }
+  ]
+}
 ]]

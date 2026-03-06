@@ -22,24 +22,29 @@ function on_receive()
 end
 
 --[[
-id: "my_device"
-version: "1.0.0"
-name: "我的设备"
-configs:
-  - # 配置 0
-    app:
-      app_transport: serial
-      app_codec: frame_codec
-    serial:
-      serial_port: /dev/ttyUSB0
-      serial_baud_rate: 115200
+{
+  "version": "1.0.0",
+  "name": "我的设备",
+  "configs": [
+    {
+      "app": {
+        "app_transport": "serial",
+        "app_codec": "frame_codec"
+      },
+      "serial": {
+        "serial_port": "/dev/ttyUSB0",
+        "serial_baud_rate": 115200
+      }
+    }
+  ]
+}
 ]]
 ```
 
 **结构说明:**
 
 - **Lua 脚本**(顶部): 自定义处理逻辑
-- **YAML 配置**(在 `--[[ ]]` 块注释中): 设备和连接设置
+- **JSON 配置**(在 `--[[ ]]` 块注释中): 设备和连接设置
 
 ## 如何使用 Lua 配置文件
 

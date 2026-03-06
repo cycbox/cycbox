@@ -137,43 +137,38 @@ function on_stop()
 end
 
 --[[
-id: "serial_assistant"
-version: "1.10.0"
-name: "Serial Assistant"
-configs:
-  - # Config 0
-    app:
-      app_transport: serial
-      app_codec: frame_codec
-      app_transformer: disable
-      app_encoding: UTF-8
-    serial:
-      serial_port: /dev/ttyUSB0
-      serial_baud_rate: 9600
-      serial_data_bits: 8
-      serial_parity: none
-      serial_stop_bits: "1"
-      serial_flow_control: none
-    frame_codec:
-      frame_codec_prefix: 42 4d
-      frame_codec_header_size: 0
-      frame_codec_tailer_length: 0
-      frame_codec_suffix: ''
-      frame_codec_length_mode: u16_be
-      frame_codec_fixed_payload_size: 32
-      frame_codec_length_meaning: payload_checksum
-      frame_codec_checksum_algo: sum16_be
-      frame_codec_checksum_scope: prefix_header_length_payload
-message_input_groups:
-  - key: "default"
-    name: "Default"
-    inputs:
-      -
-        type: single
-        id: 39648271-f8dc-4114-b1ab-67354d3de995
-        name: Message
-        text: ''
-        is_hex_mode: false
-        auto_append: none
-        connection_id: 0
+{
+  "version": "1.10.0",
+  "name": "Serial Assistant",
+  "description": "Serial debugging assistant",
+  "configs": [
+    {
+      "app": {
+        "app_transport": "serial",
+        "app_codec": "frame_codec",
+        "app_transformer": "disable",
+        "app_encoding": "UTF-8"
+      },
+      "serial": {
+        "serial_port": "/dev/ttyUSB0",
+        "serial_baud_rate": 9600,
+        "serial_data_bits": 8,
+        "serial_parity": "none",
+        "serial_stop_bits": "1",
+        "serial_flow_control": "none"
+      },
+      "frame_codec": {
+        "frame_codec_prefix": "42 4d",
+        "frame_codec_header_size": 0,
+        "frame_codec_tailer_length": 0,
+        "frame_codec_suffix": "",
+        "frame_codec_length_mode": "u16_be",
+        "frame_codec_fixed_payload_size": 32,
+        "frame_codec_length_meaning": "payload_checksum",
+        "frame_codec_checksum_algo": "sum16_be",
+        "frame_codec_checksum_scope": "prefix_header_length_payload"
+      }
+    }
+  ]
+}
 ]]

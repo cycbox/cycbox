@@ -1,12 +1,13 @@
--- EID041 Modbus Temperature & Humidity Sensor Parser
--- This script demonstrates automatic polling and using codec-parsed values
+-- EID041 Modbus Temperature & Humidity Sensor to MQTT Publisher
+-- Polls EID041 sensor via Modbus RTU, parses temperature and humidity,
+-- and publishes the values to MQTT topic "cycbox/eid041" in JSON format.
 --
--- Modbus RTU Frame format:
---   Slave Address: 1 byte
---   Function Code: 1 byte (0x04 - Read Input Registers)
---   Byte Count: 1 byte (number of data bytes)
---   Data: N bytes (register values)
---   CRC: 2 bytes (Modbus CRC16)
+-- Connections:
+--   Connection 0: Serial (Modbus RTU) - polls sensor registers
+--   Connection 1: MQTT - publishes parsed values as JSON
+--
+-- MQTT JSON payload example:
+--   {"temperature":25.3,"humidity":60.1,"temperature_float":25.32,"humidity_float":60.12}
 --
 -- Register Map (starting from 0x0000):
 --   0x0000 (1 reg):  Temperature (int16, 0.1°C resolution, signed)
@@ -18,10 +19,12 @@
 -- Configuration
 -- ============================================================================
 
-local SLAVE_ADDR = 1          -- Modbus slave address
+local SLAVE_ADDR = 3          -- Modbus slave address
 local START_ADDR = 0x0000     -- Start reading from register 0
 local NUM_REGISTERS = 6       -- Read all 6 registers (2 int + 4 float)
 local POLL_INTERVAL = 5000    -- Poll every 5 seconds (5000ms)
+local MQTT_TOPIC = "cycbox/eid041"
+local MQTT_CONNECTION_ID = 1  -- MQTT is the second connection (0-based)
 
 -- Called once when engine starts
 function on_start()
@@ -75,68 +78,92 @@ function on_receive()
   local temperature_int_raw = message:get_value(string.format("modbus_rtu_%d:input_%d", slave_addr, 30001 + START_ADDR))
   local humidity_int_raw = message:get_value(string.format("modbus_rtu_%d:input_%d", slave_addr, 30001 + START_ADDR + 1))
 
+  local json_parts = {}
+  local temperature_float_value = nil
+  local humidity_float_value = nil
+
   if temperature_int_raw then
     local temperature_int_value = temperature_int_raw * 0.1
     message:add_float_value("temperature_int", temperature_int_value)
+    table.insert(json_parts, string.format('"temperature":%.1f', temperature_int_value))
   end
   if humidity_int_raw then
     local humidity_int_value = humidity_int_raw * 0.1
     message:add_float_value("humidity_int", humidity_int_value)
+    table.insert(json_parts, string.format('"humidity":%.1f', humidity_int_value))
   end
 
   if #payload >= 15 then
-    local temperature_float_value = read_float_be(payload, 8)
+    temperature_float_value = read_float_be(payload, 8)
     if temperature_float_value then
       message:add_float_value("temperature_float", temperature_float_value)
+      table.insert(json_parts, string.format('"temperature_float":%.2f', temperature_float_value))
     end
-    local humidity_float_value = read_float_be(payload, 12)
+    humidity_float_value = read_float_be(payload, 12)
     if humidity_float_value then
       message:add_float_value("humidity_float", humidity_float_value)
+      table.insert(json_parts, string.format('"humidity_float":%.2f', humidity_float_value))
     end
   end
 
-  -- Access all codec-parsed values as JSON for debugging
-  local values_json = message.values_json
-  log("info", values_json)
+  -- Publish parsed values to MQTT in JSON format
+  if #json_parts > 0 then
+    local json_payload = "{" .. table.concat(json_parts, ",") .. "}"
+    mqtt_publish(MQTT_TOPIC, json_payload, 0, false, 0, MQTT_CONNECTION_ID)
+    log("info", "Published to " .. MQTT_TOPIC .. ": " .. json_payload)
+  end
 
-  -- Return true because we added values to the message
   return true
 end
 
 --[[
-id: "serial_assistant"
-version: "1.8.1"
-name: "Serial Assistant"
-configs:
-  - # Config 0
-    app:
-      app_transport: serial
-      app_codec: modbus_rtu_codec
-      app_transformer: disable
-      app_encoding: UTF-8
-    serial:
-      serial_port: /dev/ttyUSB0
-      serial_baud_rate: 9600
-      serial_data_bits: 8
-      serial_parity: none
-      serial_stop_bits: "1"
-      serial_flow_control: none
-    modbus_rtu_codec:
-      with_receive_timeout: 20
-message_input_groups:
-  - key: "default"
-    name: "Default"
-    inputs:
-      -
-        type: modbus_rtu
-        id: cb9d5168-9625-412e-ac6e-559066f311df
-        name: Read All Data
-        slave_address: 1
-        function_code: read_input_registers
-        start_address: 0
-        quantity: 6
-        data_value: ''
-        connection_id: 0
-        start_address_hex_mode: false
-        data_value_hex_mode: true
+{
+  "version": "1.8.1",
+  "name": "EID041 Modbus RTU to MQTT",
+  "description": "Poll EID041 temperature & humidity sensor via Modbus RTU and publish to MQTT in JSON format",
+  "configs": [
+    {
+      "app": {
+        "app_transport": "serial",
+        "app_codec": "modbus_rtu_codec",
+        "app_transformer": "disable",
+        "app_encoding": "UTF-8"
+      },
+      "serial": {
+        "serial_port": "/dev/ttyUSB0",
+        "serial_baud_rate": 9600,
+        "serial_data_bits": 8,
+        "serial_parity": "none",
+        "serial_stop_bits": "1",
+        "serial_flow_control": "none"
+      },
+      "modbus_rtu_codec": {
+        "with_receive_timeout": 20
+      }
+    },
+    {
+      "app": {
+        "app_transport": "mqtt",
+        "app_codec": "timeout_codec",
+        "app_transformer": "disable",
+        "app_encoding": "UTF-8"
+      },
+      "mqtt": {
+        "mqtt_broker_url": "mqtt://broker.emqx.io:1883",
+        "mqtt_client_id": "cycbox_eid041",
+        "mqtt_username": "",
+        "mqtt_password": "",
+        "mqtt_use_tls": false,
+        "mqtt_ca_path": "",
+        "mqtt_client_cert_path": "",
+        "mqtt_client_key_path": "",
+        "mqtt_subscribe_topics": "cycbox/#",
+        "mqtt_subscribe_qos": 1
+      },
+      "timeout_codec": {
+        "with_receive_timeout": 100
+      }
+    }
+  ]
+}
 ]]

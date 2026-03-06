@@ -1,4 +1,4 @@
--- ntfy Push Notification Example
+-- ntfy Push Notification
 -- Demonstrates both blocking and async push notification sending via ntfy.sh or self-hosted ntfy
 -- Documentation: https://docs.ntfy.sh/
 
@@ -55,39 +55,32 @@ function on_start()
 end
 
 --[[
-id: "ntfy_example"
-version: "1.0.0"
-name: "ntfy Push Notification Example"
-configs:
-  - # Config 0
-    app:
-      app_transport: udp
-      app_codec: timeout_codec
-      app_transformer: disable
-      app_encoding: UTF-8
-    udp:
-      udp_bind_address: 0.0.0.0
-      udp_bind_port: 5000
-      udp_enable_broadcast: false
-      udp_enable_multicast: false
-      udp_multicast_groups: |
-        239.255.0.1
-        ff02::1
-      udp_multicast_ttl: 1
-      udp_multicast_hop_limit: 1
-      udp_multicast_loopback: true
-    timeout_codec:
-      with_receive_timeout: 100
-message_input_groups:
-  - key: "default"
-    name: "Default"
-    inputs:
-      -
-        type: single
-        id: fa50dccc-d3f1-45f2-adbd-436ec5acfd83
-        name: Message
-        text: ''
-        is_hex_mode: false
-        auto_append: none
-        connection_id: 0
+{
+  "version": "1.0.0",
+  "name": "ntfy Push Notification",
+  "description": "Demonstrates both blocking and async push notification sending via ntfy.sh or self-hosted ntfy",
+  "configs": [
+    {
+      "app": {
+        "app_transport": "udp",
+        "app_codec": "timeout_codec",
+        "app_transformer": "disable",
+        "app_encoding": "UTF-8"
+      },
+      "udp": {
+        "udp_bind_address": "0.0.0.0",
+        "udp_bind_port": 5000,
+        "udp_enable_broadcast": false,
+        "udp_enable_multicast": false,
+        "udp_multicast_groups": "239.255.0.1\nff02::1\n",
+        "udp_multicast_ttl": 1,
+        "udp_multicast_hop_limit": 1,
+        "udp_multicast_loopback": true
+      },
+      "timeout_codec": {
+        "with_receive_timeout": 100
+      }
+    }
+  ]
+}
 ]]

@@ -24,24 +24,29 @@ function on_receive()
 end
 
 --[[
-id: "my_device"
-version: "1.0.0"
-name: "My Device"
-configs:
-  - # Config 0
-    app:
-      app_transport: serial
-      app_codec: frame_codec
-    serial:
-      serial_port: /dev/ttyUSB0
-      serial_baud_rate: 115200
+{
+  "version": "1.0.0",
+  "name": "My Device",
+  "configs": [
+    {
+      "app": {
+        "app_transport": "serial",
+        "app_codec": "frame_codec"
+      },
+      "serial": {
+        "serial_port": "/dev/ttyUSB0",
+        "serial_baud_rate": 115200
+      }
+    }
+  ]
+}
 ]]
 ```
 
 **Structure:**
 
 - **Lua Script** (top): Custom processing logic
-- **YAML Configuration** (in `--[[ ]]` block comment): Device and connection settings
+- **JSON Configuration** (in `--[[ ]]` block comment): Device and connection settings
 
 ## How to Use Lua Config Files
 
