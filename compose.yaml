@@ -1,12 +1,10 @@
 services:
-  cycbox-cli:
+  cycbox:
     image: ghcr.io/cycbox/cycbox:latest
+    container_name: cycbox
     # Access serial devices on the host
     privileged: true
     volumes:
       - /dev:/dev
       - ./config.lua:/config/config.lua:ro
-    command:
-      - "--config"
-      - "/config/config.lua"
     restart: unless-stopped
