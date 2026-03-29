@@ -1,8 +1,8 @@
 # CycBox
 
-⚠️ **注意：CycBox 是非开源项目，本仓库提供开源的 Lua 脚本范例。**
+[CycBox](https://cycbox.io/) 是一款功能强大且高度可扩展的物联网调试工具包，具有高性能，跨平台，灵活扩展等优点。
 
-[CycBox](https://cycbox.com/) 是一款功能强大且高度可扩展的物联网调试工具包，具有高性能，跨平台，灵活扩展等优点。
+本仓库包含 CycBox 的开源核心组件，采用 [MPL-2.0](./LICENSE) 协议。
 
 https://github.com/user-attachments/assets/51087a43-ac56-45aa-8bcc-d1713417741e
 
@@ -19,14 +19,26 @@ https://github.com/user-attachments/assets/51087a43-ac56-45aa-8bcc-d1713417741e
 - 跨平台，支持 Windows，Linux，Android（试验功能）
 - 提供 MCP 接口，方便 AI Agent 接入调试（试验功能）
 
+官方网站：https://cycbox.io
 
-官方网站：https://cycbox.com
+## 开源组件
 
+| 组件 | 说明 |
+|------|------|
+| [cycbox-sdk](./crates/cycbox-sdk/) | 插件开发 SDK — 特征定义、消息类型、表单清单 |
+| [cycbox-engine](./crates/cycbox-engine/) | 核心异步引擎 — 管道编排、传输管理、Lua 脚本 |
+| [cycbox-runtime](./crates/cycbox-runtime/) | 编解码器（COBS、SLIP、行模式）、转换器（CSV、JSON）及 Lua 扩展 |
+| [cycbox-serialport](./crates/cycbox-serialport/) | 跨平台串口驱动，支持 Tokio 异步 |
+| [serialport-transport](./crates/serialport-transport/) | 串口传输层，支持清单驱动配置 |
 
 ## 下载和安装
 
 - Windows: 从 Microsoft Store 直接安装 https://apps.microsoft.com/detail/9n9d7d1mv4sf
 - Linux: 依赖 GTK库，提供 deb 安装包，支持 x64 与 arm64， https://github.com/cycbox/cycbox/releases
+
+## 许可证
+
+本项目采用 [Mozilla Public License 2.0](./LICENSE) 协议。
 
 ## 应用截图
 

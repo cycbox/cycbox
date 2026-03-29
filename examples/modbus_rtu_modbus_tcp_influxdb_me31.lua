@@ -38,15 +38,16 @@ end
 
 function on_receive()
     -- Read codec-parsed register value instead of parsing raw payload directly.
-    -- The Modbus RTU codec creates values with ID: "modbus_rtu_{slave}:input_{30001 + register_address}"
-    -- The Modbus TCP codec creates values with ID: "modbus_tcp_{slave}:input_{30001 + register_address}"
-    -- For slave address 2 and register 400: input register number = 30001 + 400 = 30401
+    -- Each register produces two keys:
+    --   Logical key:        modbus_rtu_{slave}:{30001 + register_address}  (e.g. modbus_rtu_2:30401)
+    --   Protocol-type key:  modbus_rtu_{slave}:input_{addr:04X}            (e.g. modbus_rtu_2:input_0190)
+    -- For slave address 2 and register 400: logical = 30001 + 400 = 30401
     local register_num = 30001 + TEMP_REG_START
     local raw_value
     if USE_RTU then
-        raw_value = message:get_value(string.format("modbus_rtu_%d:input_%d", SLAVE_ADDRESS, register_num))
+        raw_value = message:get_value(string.format("modbus_rtu_%d:%d", SLAVE_ADDRESS, register_num))
     else
-        raw_value = message:get_value(string.format("modbus_tcp_%d:input_%d", SLAVE_ADDRESS, register_num))
+        raw_value = message:get_value(string.format("modbus_tcp_%d:%d", SLAVE_ADDRESS, register_num))
     end
 
     if raw_value == nil then
@@ -83,7 +84,7 @@ function on_receive()
 end
 
 -- Periodically send Modbus read request and flush InfluxDB batch
-function on_timer(elapsed_ms)
+function on_timer(timestamp_ms)
     timer_counter = timer_counter + 100
     read_counter = read_counter + 100
 
@@ -138,24 +139,24 @@ end
 
 --[[
 {
-  "version": "1.0.0",
+  "version": "1.12.0",
   "name": "ME31 PT100 Temperature to InfluxDB",
   "description": "Read PT100 temperature from ME31 module via Modbus RTU or TCP, publish to InfluxDB v3",
   "configs": [
     {
       "app": {
-        "app_transport": "serial",
+        "app_transport": "serial_port_transport",
         "app_codec": "modbus_rtu_codec",
-        "app_transformer": "disable",
+        "app_transformer": "disable_transformer",
         "app_encoding": "UTF-8"
       },
-      "serial": {
-        "serial_port": "/dev/ttyUSB0",
-        "serial_baud_rate": 9600,
-        "serial_data_bits": 8,
-        "serial_parity": "none",
-        "serial_stop_bits": "1",
-        "serial_flow_control": "none"
+      "serial_port_transport": {
+        "serial_port_transport_port": "/dev/ttyUSB0",
+        "serial_port_transport_baud_rate": 9600,
+        "serial_port_transport_data_bits": 8,
+        "serial_port_transport_parity": "none",
+        "serial_port_transport_stop_bits": "1",
+        "serial_port_transport_flow_control": "none"
       },
       "modbus_rtu_codec": {
         "with_receive_timeout": 20
@@ -163,53 +164,21 @@ end
     },
     {
       "app": {
-        "app_transport": "tcp_client",
+        "app_transport": "tcp_client_transport",
         "app_codec": "modbus_tcp_codec",
-        "app_transformer": "disable",
+        "app_transformer": "disable_transformer",
         "app_encoding": "UTF-8"
       },
-      "tcp_client": {
-        "tcp_client_host": "192.168.7.7",
-        "tcp_client_port": 502,
-        "tcp_client_timeout": 5000,
-        "tcp_client_keepalive": true,
-        "tcp_client_nodelay": true
+      "tcp_client_transport": {
+        "tcp_client_transport_host": "192.168.7.7",
+        "tcp_client_transport_port": 502,
+        "tcp_client_transport_timeout": 5000,
+        "tcp_client_transport_keepalive": true,
+        "tcp_client_transport_nodelay": true
       },
       "modbus_tcp_codec": {
         "unit_id": 2
       }
-    }
-  ],
-  "message_input_groups": [
-    {
-      "key": "default",
-      "name": "Default",
-      "inputs": [
-        {
-          "type": "modbus_rtu",
-          "id": "dba8ae4f-ead5-4548-add0-d37d40796c85",
-          "name": "TempRTU",
-          "slave_address": 2,
-          "function_code": "read_input_registers",
-          "start_address": 400,
-          "quantity": 1,
-          "data_value": "",
-          "connection_id": 0,
-          "start_address_hex_mode": false,
-          "data_value_hex_mode": true
-        },
-        {
-          "type": "modbus_tcp",
-          "id": "af3d5e3b-24e8-4e84-bd44-6d410457144f",
-          "name": "TempTCP",
-          "function_code": "read_input_registers",
-          "start_address": 400,
-          "quantity": 1,
-          "data_value": "",
-          "connection_id": 1,
-          "data_value_hex_mode": true
-        }
-      ]
     }
   ]
 }

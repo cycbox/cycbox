@@ -69,7 +69,7 @@ function on_receive()
 end
 
 -- Called every 100ms; prints PM2.5 latest + average every 10 seconds
-function on_timer(elapsed_ms)
+function on_timer(timestamp_ms)
     timer_counter = timer_counter + 100
     if timer_counter < PRINT_INTERVAL then
         return
@@ -114,18 +114,18 @@ end
   "configs": [
     {
       "app": {
-        "app_transport": "serial",
+        "app_transport": "serial_port_transport",
         "app_codec": "frame_codec",
-        "app_transformer": "disable",
+        "app_transformer": "disable_transformer",
         "app_encoding": "UTF-8"
       },
-      "serial": {
-        "serial_port": "/dev/ttyUSB0",
-        "serial_baud_rate": 9600,
-        "serial_data_bits": 8,
-        "serial_parity": "none",
-        "serial_stop_bits": "1",
-        "serial_flow_control": "none"
+      "serial_port_transport": {
+        "serial_port_transport_port": "/dev/ttyUSB0",
+        "serial_port_transport_baud_rate": 9600,
+        "serial_port_transport_data_bits": 8,
+        "serial_port_transport_parity": "none",
+        "serial_port_transport_stop_bits": "1",
+        "serial_port_transport_flow_control": "none"
       },
       "frame_codec": {
         "frame_codec_prefix": "42 4d",
@@ -137,29 +137,6 @@ end
         "frame_codec_length_meaning": "payload_checksum",
         "frame_codec_checksum_algo": "sum16_be",
         "frame_codec_checksum_scope": "prefix_header_length_payload"
-      }
-    },
-    {
-      "app": {
-        "app_transport": "mqtt",
-        "app_codec": "timeout_codec",
-        "app_transformer": "disable",
-        "app_encoding": "UTF-8"
-      },
-      "mqtt": {
-        "mqtt_broker_url": "mqtt://broker.emqx.io:1883",
-        "mqtt_client_id": "cycbox_a4290f76-ab3c-4ed1-906e-7cf8807a3b8f",
-        "mqtt_username": "",
-        "mqtt_password": "",
-        "mqtt_use_tls": false,
-        "mqtt_ca_path": "",
-        "mqtt_client_cert_path": "",
-        "mqtt_client_key_path": "",
-        "mqtt_subscribe_topics": "cycbox/#",
-        "mqtt_subscribe_qos": 1
-      },
-      "timeout_codec": {
-        "with_receive_timeout": 100
       }
     }
   ]

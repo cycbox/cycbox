@@ -1,0 +1,28 @@
+[package]
+name = "cycbox-sdk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MPL-2.0"
+repository = "https://github.com/cycbox/cycbox"
+description = "CycBox SDK - core traits, message types, and manifest schemas for the CycBox IoT toolkit"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+mlua = { workspace = true }
+async-trait = { workspace = true }
+fluent-bundle = { workspace = true }
+unic-langid = { workspace = true }
+rust-embed = { workspace = true }
+log = "0.4.28"
+bytes = { workspace = true }
+schemars = "1.0"
+
+[dev-dependencies]
+tokio = { workspace = true }
+serde_json = { workspace = true }
+mlua = { workspace = true }
+

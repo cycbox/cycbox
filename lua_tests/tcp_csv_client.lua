@@ -8,7 +8,7 @@ local temperature = 25.0
 local humidity = 50
 local string_pool = {"hello", "world", "foo", "bar", "cycbox", "test", "ok", "error", "running", "idle"}
 
-function on_timer(elapsed_ms)
+function on_timer(timestamp_ms)
     counter = counter + 1
 
     temperature = temperature + (math.random(-5, 5) / 10.0)
@@ -35,17 +35,17 @@ end
   "configs": [
     {
       "app": {
-        "app_transport": "tcp_client",
+        "app_transport": "tcp_client_transport",
         "app_codec": "line_codec",
         "app_transformer": "csv_transformer",
         "app_encoding": "UTF-8"
       },
-      "tcp_client": {
-        "tcp_client_host": "127.0.0.1",
-        "tcp_client_port": 9000,
-        "tcp_client_timeout": 5000,
-        "tcp_client_keepalive": true,
-        "tcp_client_nodelay": true
+      "tcp_client_transport": {
+        "tcp_client_transport_host": "127.0.0.1",
+        "tcp_client_transport_port": 8080,
+        "tcp_client_transport_timeout": 5000,
+        "tcp_client_transport_keepalive": true,
+        "tcp_client_transport_nodelay": true
       },
       "line_codec": {
         "line_codec_line_ending": "lf"

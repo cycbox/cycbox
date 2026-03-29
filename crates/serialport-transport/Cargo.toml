@@ -1,0 +1,16 @@
+[package]
+name = "serialport-transport"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MPL-2.0"
+repository = "https://github.com/cycbox/cycbox"
+description = "CycBox serial port transport - bridges cycbox-serialport with the CycBox SDK transport layer"
+
+[dependencies]
+cycbox-sdk = { workspace = true }
+cycbox-serialport = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+rust-embed = { workspace = true }
+log = "0.4.27"

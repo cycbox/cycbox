@@ -2,13 +2,12 @@
 
 [中文版本](./README_CN.md)
 
-⚠️ **Note: CycBox is a non-open-source project. This repository provides the open-source Lua script examples.**
+[CycBox](https://cycbox.io/) is a powerful and highly extensible IoT debugging toolkit, featuring high performance and
+cross-platform support.
 
-[CycBox](https://cycbox.io/) is a powerful and highly extensible IoT debugging toolkit, featuring high performance, and cross-platform support.
-
+This repository contains the open-source core of CycBox, licensed under [MPL-2.0](./LICENSE).
 
 https://github.com/user-attachments/assets/51087a43-ac56-45aa-8bcc-d1713417741e
-
 
 ## Main Features
 
@@ -25,10 +24,25 @@ https://github.com/user-attachments/assets/51087a43-ac56-45aa-8bcc-d1713417741e
 
 Official Website: https://cycbox.io
 
+## Open Source Crates
+
+| Crate                                                  | Description                                                                     |
+|--------------------------------------------------------|---------------------------------------------------------------------------------|
+| [cycbox-sdk](./crates/cycbox-sdk/)                     | Plugin development SDK — traits, message types, manifest definitions            |
+| [cycbox-engine](./crates/cycbox-engine/)               | Core async engine — pipeline orchestration, transport management, Lua scripting |
+| [cycbox-runtime](./crates/cycbox-runtime/)             | Codecs (COBS, SLIP, line), transformers (CSV, JSON), and Lua extensions         |
+| [cycbox-serialport](./crates/cycbox-serialport/)       | Cross-platform serial port driver with async Tokio support                      |
+| [serialport-transport](./crates/serialport-transport/) | Serial port transport layer with manifest-driven configuration                  |
+
 ## Download and Installation
 
-*   **Windows:** Install directly from the Microsoft Store: https://apps.microsoft.com/detail/9n9d7d1mv4sf
-*   **Linux:** Depends on the GTK library. A deb package is provided with support for x64 and arm64 architectures: https://github.com/cycbox/cycbox/releases
+* **Windows:** Install directly from the Microsoft Store: https://apps.microsoft.com/detail/9n9d7d1mv4sf
+* **Linux:** Depends on the GTK library. A deb package is provided with support for x64 and arm64
+  architectures: https://github.com/cycbox/cycbox/releases
+
+## License
+
+This project is licensed under the [Mozilla Public License 2.0](./LICENSE).
 
 ## Screenshots
 

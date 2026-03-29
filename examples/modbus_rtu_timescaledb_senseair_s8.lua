@@ -39,8 +39,10 @@ function on_receive()
         return false
     end
 
-    -- Auto-parsed value ID for input register IR4 (address 3): modbus_rtu_254:input_30004
-    local co2 = message:get_value("modbus_rtu_254:input_30004")
+    -- Auto-parsed value ID for input register IR4 (address 0x0003)
+    -- Logical key: modbus_rtu_254:30004 (30001 + 3)
+    -- Protocol-type key: modbus_rtu_254:input_0003
+    local co2 = message:get_value("modbus_rtu_254:30004")
     if co2 == nil then
         log("warn", "No CO2 value in response")
         return false
@@ -55,7 +57,7 @@ function on_receive()
     return true
 end
 
-function on_timer(elapsed_ms)
+function on_timer(timestamp_ms)
     timer_counter = timer_counter + 100
     if timer_counter < POLL_INTERVAL then
         return
@@ -71,27 +73,26 @@ function on_stop()
     log("info", "Senseair S8 polling stopped")
 end
 
-
 --[[
 {
-  "version": "1.11.1",
+  "version": "1.12.0",
   "name": "Senseair S8 CO2 Sensor to TimescaleDB",
   "description": "Modbus RTU with TimescaleDB Storage",
   "configs": [
     {
       "app": {
-        "app_transport": "serial",
+        "app_transport": "serial_port_transport",
         "app_codec": "modbus_rtu_codec",
-        "app_transformer": "disable",
+        "app_transformer": "disable_transformer",
         "app_encoding": "UTF-8"
       },
-      "serial": {
-        "serial_port": "/dev/ttyACM0",
-        "serial_baud_rate": 9600,
-        "serial_data_bits": 8,
-        "serial_parity": "none",
-        "serial_stop_bits": "1",
-        "serial_flow_control": "none"
+      "serial_port_transport": {
+        "serial_port_transport_port": "/dev/ttyUSB0",
+        "serial_port_transport_baud_rate": 9600,
+        "serial_port_transport_data_bits": 8,
+        "serial_port_transport_parity": "none",
+        "serial_port_transport_stop_bits": "1",
+        "serial_port_transport_flow_control": "none"
       },
       "modbus_rtu_codec": {
         "with_receive_timeout": 20

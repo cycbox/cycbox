@@ -62,20 +62,20 @@ end
   "configs": [
     {
       "app": {
-        "app_transport": "udp",
+        "app_transport": "udp_transport",
         "app_codec": "timeout_codec",
-        "app_transformer": "disable",
+        "app_transformer": "disable_transformer",
         "app_encoding": "UTF-8"
       },
-      "udp": {
-        "udp_bind_address": "0.0.0.0",
-        "udp_bind_port": 5000,
-        "udp_enable_broadcast": false,
-        "udp_enable_multicast": false,
-        "udp_multicast_groups": "239.255.0.1\nff02::1\n",
-        "udp_multicast_ttl": 1,
-        "udp_multicast_hop_limit": 1,
-        "udp_multicast_loopback": true
+      "udp_transport": {
+        "udp_transport_bind_address": "0.0.0.0",
+        "udp_transport_bind_port": 5000,
+        "udp_transport_enable_broadcast": false,
+        "udp_transport_enable_multicast": false,
+        "udp_transport_multicast_groups": "239.255.0.1\nff02::1",
+        "udp_transport_multicast_ttl": 1,
+        "udp_transport_multicast_hop_limit": 1,
+        "udp_transport_multicast_loopback": true
       },
       "timeout_codec": {
         "with_receive_timeout": 100

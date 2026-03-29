@@ -185,24 +185,24 @@ end
 
 --[[
 {
-  "version": "1.8.1",
+  "version": "1.12.0",
   "name": "PMS9103M Air Quality Monitor with Notifications",
   "description": "Parses PMS9103M sensor data and sends PM2.5 alerts via Discord, ntfy, and SMTP",
   "configs": [
     {
       "app": {
-        "app_transport": "serial",
+        "app_transport": "serial_port_transport",
         "app_codec": "frame_codec",
-        "app_transformer": "disable",
+        "app_transformer": "disable_transformer",
         "app_encoding": "UTF-8"
       },
-      "serial": {
-        "serial_port": "/dev/ttyUSB0",
-        "serial_baud_rate": 9600,
-        "serial_data_bits": 8,
-        "serial_parity": "none",
-        "serial_stop_bits": "1",
-        "serial_flow_control": "none"
+      "serial_port_transport": {
+        "serial_port_transport_port": "/dev/ttyUSB0",
+        "serial_port_transport_baud_rate": 9600,
+        "serial_port_transport_data_bits": 8,
+        "serial_port_transport_parity": "none",
+        "serial_port_transport_stop_bits": "1",
+        "serial_port_transport_flow_control": "none"
       },
       "frame_codec": {
         "frame_codec_prefix": "42 4d",

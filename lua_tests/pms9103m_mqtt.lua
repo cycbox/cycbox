@@ -83,24 +83,24 @@ end
 
 --[[
 {
-  "version": "1.8.1",
-  "name": "Serial Assistant",
-  "description": "Serial debugging assistant",
+  "version": "1.12.0",
+  "name": "PMS9103M",
+  "description": "PMS9103M publish to MQTT",
   "configs": [
     {
       "app": {
-        "app_transport": "serial",
+        "app_transport": "serial_port_transport",
         "app_codec": "frame_codec",
-        "app_transformer": "disable",
+        "app_transformer": "disable_transformer",
         "app_encoding": "UTF-8"
       },
-      "serial": {
-        "serial_port": "/dev/ttyUSB0",
-        "serial_baud_rate": 9600,
-        "serial_data_bits": 8,
-        "serial_parity": "none",
-        "serial_stop_bits": "1",
-        "serial_flow_control": "none"
+      "serial_port_transport": {
+        "serial_port_transport_port": "/dev/ttyUSB0",
+        "serial_port_transport_baud_rate": 9600,
+        "serial_port_transport_data_bits": 8,
+        "serial_port_transport_parity": "none",
+        "serial_port_transport_stop_bits": "1",
+        "serial_port_transport_flow_control": "none"
       },
       "frame_codec": {
         "frame_codec_prefix": "42 4d",
@@ -116,26 +116,45 @@ end
     },
     {
       "app": {
-        "app_transport": "mqtt",
+        "app_transport": "mqtt_transport",
         "app_codec": "timeout_codec",
-        "app_transformer": "disable",
+        "app_transformer": "disable_transformer",
         "app_encoding": "UTF-8"
       },
-      "mqtt": {
-        "mqtt_broker_url": "mqtt://broker.emqx.io:1883",
-        "mqtt_client_id": "cycbox_a4290f76-ab3c-4ed1-906e-7cf8807a3b8f",
-        "mqtt_username": "",
-        "mqtt_password": "",
-        "mqtt_use_tls": false,
-        "mqtt_ca_path": "",
-        "mqtt_client_cert_path": "",
-        "mqtt_client_key_path": "",
-        "mqtt_subscribe_topics": "cycbox/#",
-        "mqtt_subscribe_qos": 1
+      "mqtt_transport": {
+        "mqtt_transport_broker_url": "mqtt://broker.emqx.io",
+        "mqtt_transport_client_id": "cycbox-ed384890",
+        "mqtt_transport_username": "",
+        "mqtt_transport_password": "",
+        "mqtt_transport_use_tls": false,
+        "mqtt_transport_ca_path": "",
+        "mqtt_transport_client_cert_path": "",
+        "mqtt_transport_client_key_path": "",
+        "mqtt_transport_subscribe_topics": "cycbox/#",
+        "mqtt_transport_subscribe_qos": 0
       },
       "timeout_codec": {
         "with_receive_timeout": 100
       }
+    }
+  ],
+  "message_input_groups": [
+    {
+      "id": "27CO49FG",
+      "name": "Group49FG",
+      "inputs": [
+        {
+          "input_type": "mqtt",
+          "id": "27R80ELQ",
+          "name": "MQTT",
+          "topic": "cycbox/sensor",
+          "qos": "at_least_once",
+          "retain": false,
+          "raw_value": "{ \"PM2.5-CF1\":520 }",
+          "is_hex": false,
+          "connection_id": 1
+        }
+      ]
     }
   ]
 }

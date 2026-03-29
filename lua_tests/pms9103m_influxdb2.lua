@@ -77,7 +77,7 @@ function on_receive()
 end
 
 -- Called every 100 ms; flushes pending_lines as a sync batch every FLUSH_INTERVAL
-function on_timer(elapsed_ms)
+function on_timer(timestamp_ms)
     timer_counter = timer_counter + 100
     if timer_counter < FLUSH_INTERVAL then
         return
@@ -126,24 +126,24 @@ end
 
 --[[
 {
-  "version": "1.10.0",
-  "name": "Serial Assistant",
-  "description": "Serial debugging assistant",
+  "version": "1.12.0",
+  "name": "PMS9103M",
+  "description": "PMS9103M Air Quality Sensor with InfluxDB v2 Storage",
   "configs": [
     {
       "app": {
-        "app_transport": "serial",
+        "app_transport": "serial_port_transport",
         "app_codec": "frame_codec",
         "app_transformer": "disable",
         "app_encoding": "UTF-8"
       },
-      "serial": {
-        "serial_port": "/dev/ttyUSB0",
-        "serial_baud_rate": 9600,
-        "serial_data_bits": 8,
-        "serial_parity": "none",
-        "serial_stop_bits": "1",
-        "serial_flow_control": "none"
+      "serial_port_transport": {
+        "serial_port_transport_port": "/dev/ttyUSB0",
+        "serial_port_transport_baud_rate": 9600,
+        "serial_port_transport_data_bits": 8,
+        "serial_port_transport_parity": "none",
+        "serial_port_transport_stop_bits": "1",
+        "serial_port_transport_flow_control": "none"
       },
       "frame_codec": {
         "frame_codec_prefix": "42 4d",

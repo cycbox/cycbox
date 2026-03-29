@@ -1,0 +1,55 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/cycbox-sdk",
+    "crates/cycbox-engine",
+    "crates/cycbox-runtime",
+    "crates/cycbox-serialport",
+    "crates/serialport-transport",
+]
+
+[workspace.package]
+version = "1.12.0"
+edition = "2024"
+rust-version = "1.93"
+license = "MPL-2.0"
+repository = "https://github.com/cycbox/cycbox"
+
+[workspace.dependencies]
+# Internal crates
+cycbox-sdk = { path = "crates/cycbox-sdk" }
+cycbox-engine = { path = "crates/cycbox-engine" }
+cycbox-runtime = { path = "crates/cycbox-runtime" }
+cycbox-serialport = { path = "crates/cycbox-serialport" }
+serialport-transport = { path = "crates/serialport-transport" }
+
+# External dependencies (versions mirror cycbox-pro)
+serialport = { git = "https://github.com/cycbox/serialport-rs", branch = "cycbox", version = "4.8.1" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "2.0"
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4.5.40", features = ["derive", "env"] }
+once_cell = "1.21"
+env_logger = "0.11.8"
+log = "0.4.27"
+async-trait = "0.1"
+tokio-util = { version = "0.7.16", features = ["codec"] }
+bytes = "1.10.1"
+encoding_rs = "0.8"
+mlua = { version = "0.11", features = ["luajit", "vendored", "send", "async"] }
+fluent-bundle = { version = "0.16.0" }
+unic-langid = { version = "0.9", features = ["unic-langid-macros"] }
+rust-embed = { version = "8.5", features = ["include-exclude"] }
+indexmap = { version = "2.0", features = ["serde"] }
+futures = "0.3.31"
+mio = "1.0.4"
+redis = { version = "1.0.2", features = ["tokio-comp", "connection-manager"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = 'z'
+rpath = true

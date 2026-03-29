@@ -1,0 +1,43 @@
+[package]
+name = "cycbox-serialport"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+authors = [
+    "yplam <yplam@yplam.com>",
+]
+description = "High-performance async serial library: Sub-1ms latency via native I/O."
+repository = "https://github.com/cycbox/cycbox"
+license = "MPL-2.0"
+keywords = ["serial", "hardware", "system", "RS232"]
+categories = ["hardware-support"]
+
+[dependencies]
+serialport.workspace = true
+tokio = { version = "1", features = ["net"] }
+futures = "0.3.31"
+mio = "1.0.4"
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.30.1", features = ["term"] }
+libc = "0.2.176"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_System_WindowsProgramming",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_Devices_Communication",
+] }
+
+[dev-dependencies]
+rstest = { version = "0.26.1", default-features = false }
+envconfig = "0.11.1"
+tokio = { version = "1", features = ["rt", "time", "macros", "io-util"] }
+
+
+[features]
+default = []
+hardware-tests = []

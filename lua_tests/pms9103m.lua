@@ -79,24 +79,24 @@ end
 
 --[[
 {
-  "version": "1.8.1",
+  "version": "1.12.0",
   "name": "PMS9103M Air Quality Sensor",
   "description": "PMS9103M Air Quality Sensor Parser",
   "configs": [
     {
       "app": {
-        "app_transport": "serial",
+        "app_transport": "serial_port_transport",
         "app_codec": "frame_codec",
-        "app_transformer": "disable",
+        "app_transformer": "disable_transformer",
         "app_encoding": "UTF-8"
       },
-      "serial": {
-        "serial_port": "/dev/ttyUSB0",
-        "serial_baud_rate": 9600,
-        "serial_data_bits": 8,
-        "serial_parity": "none",
-        "serial_stop_bits": "1",
-        "serial_flow_control": "none"
+      "serial_port_transport": {
+        "serial_port_transport_port": "/dev/ttyUSB0",
+        "serial_port_transport_baud_rate": 9600,
+        "serial_port_transport_data_bits": 8,
+        "serial_port_transport_parity": "none",
+        "serial_port_transport_stop_bits": "1",
+        "serial_port_transport_flow_control": "none"
       },
       "frame_codec": {
         "frame_codec_prefix": "42 4d",
@@ -110,6 +110,44 @@ end
         "frame_codec_checksum_scope": "prefix_header_length_payload"
       }
     }
-  ]
+  ],
+  "dashboard": {
+    "widgets": [
+      {
+        "id": "27J3J04F",
+        "name": "PM2.5",
+        "widget_type": "lineChart",
+        "colspan": 6,
+        "rowspan": 2,
+        "lines": [
+          {
+            "data_value_id": "PM2.5-CF1",
+            "label": "PM2.5-CF1",
+            "color_name": "amber",
+            "width": 2.0,
+            "dash_pattern": "solid",
+            "unit": ""
+          }
+        ]
+      },
+      {
+        "id": "27F0N3OK",
+        "name": "PM1.0-CF1",
+        "widget_type": "lineChart",
+        "colspan": 6,
+        "rowspan": 2,
+        "lines": [
+          {
+            "data_value_id": "PM1.0-CF1",
+            "label": "PM1.0-CF1",
+            "color_name": "red",
+            "width": 2.0,
+            "dash_pattern": "solid",
+            "unit": ""
+          }
+        ]
+      }
+    ]
+  }
 }
 ]]
