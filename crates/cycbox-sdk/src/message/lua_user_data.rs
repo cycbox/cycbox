@@ -3,10 +3,14 @@
 // ============================================================================
 
 use super::Message;
+use super::PayloadType;
 use super::Value;
 use super::ValueType;
 
-use mlua::{Integer as LuaInteger, UserData, UserDataFields, UserDataMethods, Value as LuaValue};
+use mlua::{
+    Integer as LuaInteger, MetaMethod, UserData, UserDataFields, UserDataMethods,
+    Value as LuaValue,
+};
 
 /// Return a short human-readable description of a LuaValue for error messages.
 fn lua_value_desc(val: &LuaValue) -> String {
@@ -16,7 +20,10 @@ fn lua_value_desc(val: &LuaValue) -> String {
         LuaValue::Integer(n) => format!("integer ({n})"),
         LuaValue::Number(n) => format!("number ({n})"),
         LuaValue::String(s) => match s.to_str() {
-            Ok(preview) if preview.len() > 32 => format!("string (\"{}...\")", &preview[..32]),
+            Ok(preview) if preview.len() > 32 => {
+                let truncated: String = preview.chars().take(32).collect();
+                format!("string (\"{truncated}...\")")
+            }
             Ok(preview) => format!("string (\"{preview}\")"),
             Err(_) => "string (<non-utf8>)".to_string(),
         },
@@ -64,6 +71,21 @@ fn lua_value_to_u64(val: &LuaValue) -> Option<u64> {
             }
         }
         _ => None,
+    }
+}
+
+/// Convert PayloadType to its Lua string representation.
+fn payload_type_to_str(pt: &PayloadType) -> &'static str {
+    match pt {
+        PayloadType::Binary => "binary",
+        PayloadType::Text => "text",
+        PayloadType::WebsocketBinary => "websocket_binary",
+        PayloadType::WebsocketText => "websocket_text",
+        PayloadType::Mqtt => "mqtt",
+        PayloadType::ModbusRequest => "modbus_request",
+        PayloadType::ModbusResponse => "modbus_response",
+        PayloadType::HttpRequest => "http_request",
+        PayloadType::HttpResponse => "http_response",
     }
 }
 
@@ -115,8 +137,19 @@ impl UserData for Message {
             Ok(())
         });
 
-        // Timestamp field (read-only)
+        // Timestamp field (read/write)
         fields.add_field_method_get("timestamp", |_, this| Ok(this.timestamp));
+
+        fields.add_field_method_set("timestamp", |_, this, ts: LuaValue| {
+            let val = lua_value_to_u64(&ts).ok_or_else(|| {
+                mlua::Error::RuntimeError(format!(
+                    "timestamp: must be a non-negative number, got {}",
+                    lua_value_desc(&ts)
+                ))
+            })?;
+            this.timestamp = val;
+            Ok(())
+        });
 
         // Checksum valid field (derived from metadata)
         fields.add_field_method_get("checksum_valid", |_, this| {
@@ -135,6 +168,45 @@ impl UserData for Message {
 
         fields.add_field_method_set("connection_id", |_, this, connection_id: u32| {
             this.connection_id = connection_id;
+            Ok(())
+        });
+
+        // Message type field (read/write)
+        fields.add_field_method_get("message_type", |_, this| Ok(this.message_type.clone()));
+
+        fields.add_field_method_set(
+            "message_type",
+            |_, this, message_type: mlua::String| {
+                this.message_type = message_type
+                    .to_str()
+                    .map_err(|_| {
+                        mlua::Error::RuntimeError(
+                            "message_type: value is not valid UTF-8".to_string(),
+                        )
+                    })?
+                    .to_string();
+                Ok(())
+            },
+        );
+
+        // Payload type field (read-only, as string)
+        fields.add_field_method_get("payload_type", |_, this| {
+            Ok(payload_type_to_str(&this.payload_type).to_string())
+        });
+
+        // Highlighted field (read/write)
+        fields.add_field_method_get("highlighted", |_, this| Ok(this.highlighted));
+
+        fields.add_field_method_set("highlighted", |_, this, highlighted: bool| {
+            this.highlighted = highlighted;
+            Ok(())
+        });
+
+        // Display hex field (read/write)
+        fields.add_field_method_get("display_hex", |_, this| Ok(this.display_hex));
+
+        fields.add_field_method_set("display_hex", |_, this, display_hex: bool| {
+            this.display_hex = display_hex;
             Ok(())
         });
 
@@ -398,12 +470,10 @@ impl UserData for Message {
                     "{METHOD}: missing 'value' (arg #2), usage: msg:{METHOD}(id, value [, timestamp])"
                 ))
             })?;
-            // Accept boolean directly, or use Lua truthiness (nil/false = false, everything else = true)
+            // Follow Lua truthiness: nil and false are falsy, everything else is truthy
             let value: bool = match &value_arg {
                 LuaValue::Boolean(b) => *b,
                 LuaValue::Nil => false,
-                LuaValue::Integer(n) => *n != 0,
-                LuaValue::Number(n) => *n != 0.0,
                 _ => true,
             };
             let timestamp = extract_timestamp(METHOD, args_iter.next(), this.timestamp)?;
@@ -541,6 +611,156 @@ impl UserData for Message {
                 },
                 None => Ok(LuaValue::Nil),
             }
+        });
+
+        // ---- Metadata access ----
+        methods.add_method("get_metadata", |lua, this, id: Option<String>| {
+            let id_str = match id {
+                Some(s) => s,
+                None => return Ok(LuaValue::Nil),
+            };
+            let value = this.metadata.iter().find(|v| v.id == id_str);
+
+            match value {
+                Some(val) => match val.value_type {
+                    ValueType::Boolean => {
+                        let b = val.value_payload.first().map(|&b| b != 0).unwrap_or(false);
+                        Ok(LuaValue::Boolean(b))
+                    }
+                    ValueType::Int8 => {
+                        if !val.value_payload.is_empty() {
+                            Ok(LuaValue::Integer(val.value_payload[0] as i8 as LuaInteger))
+                        } else {
+                            Ok(LuaValue::Nil)
+                        }
+                    }
+                    ValueType::Int16 => {
+                        if val.value_payload.len() >= 2 {
+                            let bytes: [u8; 2] = val.value_payload[..2].try_into().unwrap();
+                            Ok(LuaValue::Integer(i16::from_le_bytes(bytes) as LuaInteger))
+                        } else {
+                            Ok(LuaValue::Nil)
+                        }
+                    }
+                    ValueType::Int32 => {
+                        if val.value_payload.len() >= 4 {
+                            let bytes: [u8; 4] = val.value_payload[..4].try_into().unwrap();
+                            Ok(LuaValue::Integer(i32::from_le_bytes(bytes) as LuaInteger))
+                        } else {
+                            Ok(LuaValue::Nil)
+                        }
+                    }
+                    ValueType::Int64 => {
+                        if val.value_payload.len() >= 8 {
+                            let bytes: [u8; 8] = val.value_payload[..8].try_into().unwrap();
+                            let i = i64::from_le_bytes(bytes);
+                            match LuaInteger::try_from(i) {
+                                Ok(n) => Ok(LuaValue::Integer(n)),
+                                Err(_) => Ok(LuaValue::Number(i as f64)),
+                            }
+                        } else {
+                            Ok(LuaValue::Nil)
+                        }
+                    }
+                    ValueType::UInt8 => {
+                        if !val.value_payload.is_empty() {
+                            Ok(LuaValue::Integer(val.value_payload[0] as LuaInteger))
+                        } else {
+                            Ok(LuaValue::Nil)
+                        }
+                    }
+                    ValueType::UInt16 => {
+                        if val.value_payload.len() >= 2 {
+                            let bytes: [u8; 2] = val.value_payload[..2].try_into().unwrap();
+                            Ok(LuaValue::Integer(u16::from_le_bytes(bytes) as LuaInteger))
+                        } else {
+                            Ok(LuaValue::Nil)
+                        }
+                    }
+                    ValueType::UInt32 => {
+                        if val.value_payload.len() >= 4 {
+                            let bytes: [u8; 4] = val.value_payload[..4].try_into().unwrap();
+                            Ok(LuaValue::Integer(u32::from_le_bytes(bytes) as LuaInteger))
+                        } else {
+                            Ok(LuaValue::Nil)
+                        }
+                    }
+                    ValueType::UInt64 => {
+                        if val.value_payload.len() >= 8 {
+                            let bytes: [u8; 8] = val.value_payload[..8].try_into().unwrap();
+                            let u = u64::from_le_bytes(bytes);
+                            if u <= LuaInteger::MAX as u64 {
+                                Ok(LuaValue::Integer(u as LuaInteger))
+                            } else {
+                                Ok(LuaValue::Number(u as f64))
+                            }
+                        } else {
+                            Ok(LuaValue::Nil)
+                        }
+                    }
+                    ValueType::Float32 => {
+                        if val.value_payload.len() >= 4 {
+                            let bytes: [u8; 4] = val.value_payload[..4].try_into().unwrap();
+                            Ok(LuaValue::Number(f32::from_le_bytes(bytes) as f64))
+                        } else {
+                            Ok(LuaValue::Nil)
+                        }
+                    }
+                    ValueType::Float64 => {
+                        if val.value_payload.len() >= 8 {
+                            let bytes: [u8; 8] = val.value_payload[..8].try_into().unwrap();
+                            Ok(LuaValue::Number(f64::from_le_bytes(bytes)))
+                        } else {
+                            Ok(LuaValue::Nil)
+                        }
+                    }
+                    ValueType::String => {
+                        Ok(LuaValue::String(lua.create_string(&val.value_payload)?))
+                    }
+                    _ => Ok(LuaValue::Nil),
+                },
+                None => Ok(LuaValue::Nil),
+            }
+        });
+
+        // ---- Value query helpers ----
+        methods.add_method("has_value", |_, this, id: Option<String>| {
+            let id_str = match id {
+                Some(s) => s,
+                None => return Ok(false),
+            };
+            Ok(this.values.iter().any(|v| v.id == id_str))
+        });
+
+        methods.add_method("value_ids", |lua, this, ()| {
+            let table = lua.create_table()?;
+            for (i, val) in this.values.iter().enumerate() {
+                table.set(i + 1, val.id.as_str())?;
+            }
+            Ok(LuaValue::Table(table))
+        });
+
+        methods.add_method_mut("remove_value", |_, this, id: Option<String>| {
+            let id_str = match id {
+                Some(s) => s,
+                None => return Ok(false),
+            };
+            let len_before = this.values.len();
+            this.values.retain(|v| v.id != id_str);
+            Ok(this.values.len() != len_before)
+        });
+
+        methods.add_method_mut("clear_values", |_, this, ()| {
+            this.values.clear();
+            Ok(())
+        });
+
+        // ---- Debug ----
+        methods.add_meta_method(MetaMethod::ToString, |_, this, ()| {
+            Ok(format!(
+                "[Message type={} conn={} ts={}]",
+                this.message_type, this.connection_id, this.timestamp
+            ))
         });
     }
 }
