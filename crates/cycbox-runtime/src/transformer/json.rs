@@ -14,6 +14,11 @@ impl JsonTransformer {
 
     /// Parse JSON object into values
     fn parse_json(&self, timestamp: u64, line: &str) -> Result<Vec<Value>, CycBoxError> {
+        // Fast check: JSON objects must start with '{'
+        if !line.starts_with('{') {
+            return Err(CycBoxError::InvalidFormat("Not a JSON object".to_string()));
+        }
+
         // Parse JSON object - use IndexMap to preserve key order
         let json_obj: indexmap::IndexMap<String, serde_json::Value> = serde_json::from_str(line)
             .map_err(|e| CycBoxError::InvalidFormat(format!("Failed to parse JSON: {}", e)))?;

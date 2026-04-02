@@ -198,20 +198,17 @@ impl FormUtils {
         config.iter().map(|group| group.key.clone()).collect()
     }
 
-    /// Get receive timeout from configuration
+    /// Get receive timeout from configuration.
+    /// Prioritizes the selected transport's config, then the selected codec's config,
+    /// and falls back to 25ms if neither has a value.
     pub fn get_receive_timeout(configs: &[FormGroup]) -> Duration {
-        // Search all config groups for a field with key "with_receive_timeout"
-        for group in configs {
-            for field in &group.fields {
-                if field.key == "with_receive_timeout"
-                    && let Some(values) = &field.values
-                {
-                    for value in values {
-                        if let FormValue::Integer(timeout_ms) = value {
-                            return Duration::from_millis(*timeout_ms as u64);
-                        }
-                    }
-                }
+        let transport_id = Self::get_text_value(configs, "app", "app_transport");
+        let codec_id = Self::get_text_value(configs, "app", "app_codec");
+
+        // Try transport group, then codec group, then timeout_codec group
+        for group_key in transport_id.into_iter().chain(codec_id).chain(Some("timeout_codec")) {
+            if let Some(timeout_ms) = Self::get_integer_value(configs, group_key, "with_receive_timeout") {
+                return Duration::from_millis(timeout_ms as u64);
             }
         }
         Duration::from_millis(25)

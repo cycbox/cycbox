@@ -111,12 +111,16 @@ impl ManifestValues {
         }
 
         // Only include dashboard if it has widgets
-        let dashboard = manifest.dashboard.as_ref().filter(|d| {
-            d.get("widgets")
-                .and_then(|w| w.as_array())
-                .map(|arr| !arr.is_empty())
-                .unwrap_or(false)
-        }).cloned();
+        let dashboard = manifest
+            .dashboard
+            .as_ref()
+            .filter(|d| {
+                d.get("widgets")
+                    .and_then(|w| w.as_array())
+                    .map(|arr| !arr.is_empty())
+                    .unwrap_or(false)
+            })
+            .cloned();
 
         Self {
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
@@ -312,15 +316,14 @@ impl ManifestValues {
     /// # Returns
     /// Parsed ManifestValues or error
     pub fn from_lua_str(content: &str) -> Result<Self, CycBoxError> {
-        let block_start = content
-            .find("--[[")
-            .ok_or_else(|| CycBoxError::Parse("No --[[ block comment found in Lua file".to_string()))?;
+        let block_start = content.find("--[[").ok_or_else(|| {
+            CycBoxError::Parse("No --[[ block comment found in Lua file".to_string())
+        })?;
 
         let after_open = block_start + 4;
-        let block_end = content[after_open..]
-            .find("]]")
-            .ok_or_else(|| CycBoxError::Parse("Unclosed --[[ block comment in Lua file".to_string()))?
-            + after_open;
+        let block_end = content[after_open..].find("]]").ok_or_else(|| {
+            CycBoxError::Parse("Unclosed --[[ block comment in Lua file".to_string())
+        })? + after_open;
 
         let lua_code = content[..block_start].trim();
         let json_content = content[after_open..block_end].trim();
@@ -345,8 +348,13 @@ impl ManifestValues {
     /// # Returns
     /// Parsed ManifestValues or error
     pub fn load_from_lua_file<P: AsRef<Path>>(path: P) -> Result<Self, CycBoxError> {
-        let content = fs::read_to_string(path.as_ref())
-            .map_err(|e| CycBoxError::Other(format!("Failed to read Lua file: {:?}: {}", path.as_ref(), e)))?;
+        let content = fs::read_to_string(path.as_ref()).map_err(|e| {
+            CycBoxError::Other(format!(
+                "Failed to read Lua file: {:?}: {}",
+                path.as_ref(),
+                e
+            ))
+        })?;
         Self::from_lua_str(&content)
     }
 
@@ -377,12 +385,18 @@ impl ManifestValues {
     /// Ok or error
     pub fn save_to_lua_file<P: AsRef<Path>>(&self, path: P) -> Result<(), CycBoxError> {
         if let Some(parent) = path.as_ref().parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| CycBoxError::Other(format!("Failed to create directory: {:?}: {}", parent, e)))?;
+            fs::create_dir_all(parent).map_err(|e| {
+                CycBoxError::Other(format!("Failed to create directory: {:?}: {}", parent, e))
+            })?;
         }
         let content = self.to_lua_str()?;
-        fs::write(path.as_ref(), content)
-            .map_err(|e| CycBoxError::Other(format!("Failed to write Lua file: {:?}: {}", path.as_ref(), e)))?;
+        fs::write(path.as_ref(), content).map_err(|e| {
+            CycBoxError::Other(format!(
+                "Failed to write Lua file: {:?}: {}",
+                path.as_ref(),
+                e
+            ))
+        })?;
         Ok(())
     }
 
@@ -584,13 +598,13 @@ impl ManifestValues {
                     if let Some(app_fields) = config.get_mut("app")
                         && let Some(JsonValue::String(transport_val)) =
                             app_fields.get("app_transport")
-                            && let Some(&new_transport) = migration_map.get(transport_val.as_str())
-                            {
-                                app_fields.insert(
-                                    "app_transport".to_string(),
-                                    JsonValue::String(new_transport.to_string()),
-                                );
-                            }
+                        && let Some(&new_transport) = migration_map.get(transport_val.as_str())
+                    {
+                        app_fields.insert(
+                            "app_transport".to_string(),
+                            JsonValue::String(new_transport.to_string()),
+                        );
+                    }
                 }
             }
         }

@@ -1,9 +1,13 @@
 use crate::engine::EngineRef;
 use cycbox_sdk::lua::{LuaEngine, LuaFunctionRegistry};
+use cycbox_sdk::message::SYSTEM_CONNECTION_ID;
 use cycbox_sdk::{CycBoxError, FormGroup, FormUtils};
 use cycbox_sdk::{Message, MessageBuilder, PayloadType};
 use mlua::{AnyUserData, Function, Lua};
 use std::sync::Arc;
+use tokio::sync::mpsc::Sender;
+
+pub(crate) type CommandSender = Sender<(Message, tokio::sync::oneshot::Sender<Option<Message>>)>;
 
 /// Default example script shown in UI
 pub const DEFAULT_LUA_SCRIPT: &str = r#"
@@ -58,6 +62,8 @@ pub struct LuaScript {
     // Store transport and codec info for all connections
     connection_transports: Vec<String>,
     connection_codecs: Vec<String>,
+    // Direct command senders to connections (bypasses engine mpsc to avoid deadlock)
+    connection_command_senders: Vec<CommandSender>,
 }
 
 impl LuaScript {
@@ -66,6 +72,7 @@ impl LuaScript {
         configs: &[&[FormGroup]],
         engine: EngineRef,
         lua_helper_registry: &LuaFunctionRegistry,
+        connection_command_senders: Vec<CommandSender>,
     ) -> Result<Self, CycBoxError> {
         let mut connection_transports = vec![];
         let mut connection_codecs = vec![];
@@ -91,6 +98,7 @@ impl LuaScript {
             engine: engine.clone(),
             connection_transports,
             connection_codecs,
+            connection_command_senders,
         };
         lua_script.setup_utility_functions()?;
         lua_script.lua.load(lua_code).exec()?;
@@ -357,6 +365,124 @@ impl LuaScript {
             )?;
 
         globals.set("send_after", send_after_fn)?;
+
+        // Add async send_command function: send_command(command_name, connection_id, params_table)
+        // Sends a command directly to a connection and returns the response.
+        // This bypasses the engine mpsc channel to avoid deadlock when called from Lua hooks.
+        // Returns a table with response values, or nil if no response / connection not found.
+        let command_senders = self.connection_command_senders.clone();
+        let engine = self.engine.clone();
+        let send_command_fn = lua.create_async_function(
+            move |lua,
+                  (command_name, connection_id, params): (
+                String,
+                Option<u32>,
+                Option<mlua::Table>,
+            )| {
+                let command_senders = command_senders.clone();
+                let engine = engine.clone();
+                async move {
+                    let connection_id = connection_id.unwrap_or(0);
+
+                    // Build request message
+                    let mut builder =
+                        MessageBuilder::request(0, &command_name, Message::current_timestamp(), 0)
+                            .connection_id(connection_id);
+
+                    // Add params from Lua table, preserving types
+                    if let Some(params_table) = params {
+                        for pair in params_table.pairs::<String, mlua::Value>() {
+                            let (key, value) = pair?;
+                            let sdk_value = match &value {
+                                mlua::Value::String(s) => {
+                                    cycbox_sdk::Value::new_string(&key, s.to_str()?.to_string())
+                                }
+                                mlua::Value::Integer(n) => {
+                                    cycbox_sdk::Value::builder(&key).int64(*n)
+                                }
+                                mlua::Value::Number(n) => {
+                                    cycbox_sdk::Value::builder(&key).float64(*n)
+                                }
+                                mlua::Value::Boolean(b) => {
+                                    cycbox_sdk::Value::builder(&key).boolean(*b)
+                                }
+                                _ => {
+                                    return Err(mlua::Error::RuntimeError(format!(
+                                        "send_command: unsupported param type for '{key}'"
+                                    )));
+                                }
+                            };
+                            builder = builder.add_value(sdk_value);
+                        }
+                    }
+
+                    let command_msg = builder.build();
+
+                    // Send to target connection(s) and collect response
+                    let response = if connection_id == SYSTEM_CONNECTION_ID {
+                        // Broadcast to all connections, keep last non-empty response
+                        let mut last_response: Option<Message> = None;
+                        for sender in &command_senders {
+                            let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+                            let _ = sender.send((command_msg.clone(), resp_tx)).await;
+                            if let Ok(Some(resp)) = resp_rx.await {
+                                last_response = Some(resp);
+                            }
+                        }
+                        last_response
+                    } else {
+                        match command_senders.get(connection_id as usize) {
+                            Some(sender) => {
+                                let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+                                let _ = sender.send((command_msg.clone(), resp_tx)).await;
+                                resp_rx.await.unwrap_or_default()
+                            }
+                            None => {
+                                engine.warn(&format!(
+                                    "[Lua] send_command: connection {connection_id} not found"
+                                ));
+                                return Ok(mlua::Value::Nil);
+                            }
+                        }
+                    };
+
+                    // Convert response Message values to a Lua table
+                    match response {
+                        Some(resp) => {
+                            let table = lua.create_table()?;
+                            for value in &resp.values {
+                                if let Some(s) = value.as_string() {
+                                    table.set(value.id.as_str(), s)?;
+                                } else if let Some(n) = value.as_u64() {
+                                    table.set(value.id.as_str(), n)?;
+                                } else if let Some(n) = value.as_i64() {
+                                    table.set(value.id.as_str(), n)?;
+                                } else if let Some(n) = value.as_f64() {
+                                    table.set(value.id.as_str(), n)?;
+                                } else if let Some(b) = value.as_bool() {
+                                    table.set(value.id.as_str(), b)?;
+                                }
+                            }
+                            // Also expose success/error from metadata
+                            for meta in &resp.metadata {
+                                if meta.id == "success" {
+                                    if let Some(b) = meta.as_bool() {
+                                        table.set("success", b)?;
+                                    }
+                                } else if meta.id == "error"
+                                    && let Some(s) = meta.as_string()
+                                {
+                                    table.set("error", s)?;
+                                }
+                            }
+                            Ok(mlua::Value::Table(table))
+                        }
+                        None => Ok(mlua::Value::Nil),
+                    }
+                }
+            },
+        )?;
+        globals.set("send_command", send_command_fn)?;
 
         Ok(())
     }

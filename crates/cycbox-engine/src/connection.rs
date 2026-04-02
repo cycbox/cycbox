@@ -1,6 +1,6 @@
 use crate::formatter::{format_hexdump, format_terminal};
 use cycbox_sdk::prelude::*;
-use log::warn;
+use log::debug;
 
 /// Unified connection wrapping a `MessageTransport` with transformer, encoding,
 /// and highlight state. Handles both codec-based (byte-stream) and native
@@ -44,7 +44,7 @@ impl Connection {
             && message.values.is_empty()
             && let Err(e) = transformer.on_receive(&mut message)
         {
-            warn!(
+            debug!(
                 "Connection {}: transformer on_receive error: {e}",
                 self.connection_id
             );
@@ -71,7 +71,7 @@ impl Connection {
         if let Some(ref transformer) = self.transformer
             && let Err(e) = transformer.on_send(&mut message)
         {
-            warn!(
+            debug!(
                 "Connection {}: transformer on_send error: {e}",
                 self.connection_id
             );

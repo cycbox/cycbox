@@ -143,6 +143,10 @@ impl Message {
         None
     }
 
+    pub fn remove_metadata(&mut self, name: &str) {
+        self.metadata.retain(|v| v.id != name);
+    }
+
     /// Check if this is a successful response (for MESSAGE_TYPE_RESPONSE)
     pub fn is_success(&self) -> bool {
         self.metadata_value("success")
