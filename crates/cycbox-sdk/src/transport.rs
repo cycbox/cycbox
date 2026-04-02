@@ -177,10 +177,19 @@ impl MessageTransport for CodecTransport {
         if message.frame.is_empty() {
             message.frame = message.payload.clone();
         }
-        self.transport
-            .write_all(&message.frame)
-            .await
-            .map_err(|e| CycBoxError::Connection(e.to_string()))?;
+        if !message.frame.is_empty() {
+            self.transport
+                .write_all(&message.frame)
+                .await
+                .map_err(|e| CycBoxError::Connection(e.to_string()))?;
+        }
         Ok(())
+    }
+
+    async fn handle_command(&mut self, command: &Message) -> Option<Message> {
+        if let Some(response) = self.codec.handle_command(command).await {
+            return Some(response);
+        }
+        self.transport.handle_command(command).await
     }
 }

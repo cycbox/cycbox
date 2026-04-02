@@ -70,7 +70,7 @@ pub(crate) fn start_engine_task(
         // Lua script state — always present; initialised to an empty (no-op) script so that
         // on_timer / on_receive calls before Start are safely ignored.
         let lua_helper_registry = run_mode.lua_helper_registry();
-        let mut lua_script = LuaScript::new("", &[], engine.clone(), lua_helper_registry)
+        let mut lua_script = LuaScript::new("", &[], engine.clone(), lua_helper_registry, vec![])
             .expect("Failed to create empty Lua script");
         // 100 ms periodic tick drives LuaScript::on_timer.
         let mut timer_interval = interval(Duration::from_millis(100));
@@ -139,7 +139,7 @@ pub(crate) fn start_engine_task(
                                     .iter()
                                     .map(|c| c.as_slice())
                                     .collect();
-                                match LuaScript::new(lua_code, &configs_refs, engine.clone(), lua_helper_registry) {
+                                match LuaScript::new(lua_code, &configs_refs, engine.clone(), lua_helper_registry, connection_command_senders.clone()) {
                                     Ok(mut script) => {
                                         if let Err(e) = script.on_start().await {
                                             engine.error(&format!("Lua on_start error: {e}"));
@@ -159,7 +159,7 @@ pub(crate) fn start_engine_task(
                             }
                             // Replace with an empty script so on_timer ticks between Stop and the
                             // next Start do not execute stale user code.
-                            lua_script = LuaScript::new("", &[], engine.clone(), lua_helper_registry)
+                            lua_script = LuaScript::new("", &[], engine.clone(), lua_helper_registry, vec![])
                                 .expect("Failed to create empty Lua script");
 
                             state.running = false;
@@ -183,7 +183,32 @@ pub(crate) fn start_engine_task(
                             if let Err(e) = lua_script.on_receive(&mut message).await {
                                 engine.error(&format!("Lua on_receive error: {e}"));
                             }
+
+                            // Check for auto-response (e.g. Modbus server codec)
+                            let auto_response = if let Some(response_value) = message
+                                .metadata_value("auto_response")
+                            {
+                                let response_frame =response_value.as_bytes();
+                                let conn_id = message.connection_id;
+                                message.remove_metadata("auto_response");
+                                Some((response_frame, conn_id))
+                            } else {
+                                None
+                            };
+
                             engine.broadcast(message);
+
+                            // Send auto-response
+                            if let Some((response_frame, conn_id)) = auto_response {
+                                let tx_msg = MessageBuilder::tx(
+                                    conn_id,
+                                    PayloadType::Binary,
+                                    response_frame.clone(),
+                                    response_frame,
+                                )
+                                .build();
+                                engine.send_message(tx_msg).await;
+                            }
                         }
                         Command::SendConfirm(mut message) => {
                             if let Err(e) = lua_script.on_send_confirm(&mut message).await {
@@ -275,7 +300,7 @@ pub(crate) fn start_engine_task(
                                     .iter()
                                     .map(|c| c.as_slice())
                                     .collect();
-                                match LuaScript::new(lua_code, &configs_refs, engine.clone(), lua_helper_registry) {
+                                match LuaScript::new(lua_code, &configs_refs, engine.clone(), lua_helper_registry, connection_command_senders.clone()) {
                                     Ok(mut script) => {
                                         if let Err(e) = script.on_start().await {
                                             engine.error(&format!("Lua on_start error after reload: {e}"));

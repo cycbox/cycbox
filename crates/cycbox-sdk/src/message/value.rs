@@ -83,7 +83,7 @@ impl Value {
     }
 
     pub fn as_bool(&self) -> Option<bool> {
-        if self.value_type == ValueType::Boolean && !self.value_payload.is_empty() {
+        if !self.value_payload.is_empty() {
             Some(self.value_payload[0] != 0)
         } else {
             None
@@ -91,7 +91,7 @@ impl Value {
     }
 
     pub fn as_i8(&self) -> Option<i8> {
-        if self.value_type == ValueType::Int8 && !self.value_payload.is_empty() {
+        if !self.value_payload.is_empty() {
             Some(self.value_payload[0] as i8)
         } else {
             None
@@ -99,7 +99,7 @@ impl Value {
     }
 
     pub fn as_i16(&self) -> Option<i16> {
-        if self.value_type == ValueType::Int16 && self.value_payload.len() >= 2 {
+        if self.value_payload.len() >= 2 {
             Some(i16::from_le_bytes([
                 self.value_payload[0],
                 self.value_payload[1],
@@ -110,7 +110,7 @@ impl Value {
     }
 
     pub fn as_i32(&self) -> Option<i32> {
-        if self.value_type == ValueType::Int32 && self.value_payload.len() >= 4 {
+        if self.value_payload.len() >= 4 {
             Some(i32::from_le_bytes([
                 self.value_payload[0],
                 self.value_payload[1],
@@ -123,7 +123,7 @@ impl Value {
     }
 
     pub fn as_i64(&self) -> Option<i64> {
-        if self.value_type == ValueType::Int64 && self.value_payload.len() >= 8 {
+        if self.value_payload.len() >= 8 {
             Some(i64::from_le_bytes([
                 self.value_payload[0],
                 self.value_payload[1],
@@ -140,7 +140,7 @@ impl Value {
     }
 
     pub fn as_u8(&self) -> Option<u8> {
-        if self.value_type == ValueType::UInt8 && !self.value_payload.is_empty() {
+        if !self.value_payload.is_empty() {
             Some(self.value_payload[0])
         } else {
             None
@@ -148,7 +148,7 @@ impl Value {
     }
 
     pub fn as_u16(&self) -> Option<u16> {
-        if self.value_type == ValueType::UInt16 && self.value_payload.len() >= 2 {
+        if self.value_payload.len() >= 2 {
             Some(u16::from_le_bytes([
                 self.value_payload[0],
                 self.value_payload[1],
@@ -159,7 +159,7 @@ impl Value {
     }
 
     pub fn as_u32(&self) -> Option<u32> {
-        if self.value_type == ValueType::UInt32 && self.value_payload.len() >= 4 {
+        if self.value_payload.len() >= 4 {
             Some(u32::from_le_bytes([
                 self.value_payload[0],
                 self.value_payload[1],
@@ -172,7 +172,7 @@ impl Value {
     }
 
     pub fn as_u64(&self) -> Option<u64> {
-        if self.value_type == ValueType::UInt64 && self.value_payload.len() >= 8 {
+        if self.value_payload.len() >= 8 {
             Some(u64::from_le_bytes([
                 self.value_payload[0],
                 self.value_payload[1],
@@ -189,7 +189,7 @@ impl Value {
     }
 
     pub fn as_f32(&self) -> Option<f32> {
-        if self.value_type == ValueType::Float32 && self.value_payload.len() >= 4 {
+        if self.value_payload.len() >= 4 {
             Some(f32::from_le_bytes([
                 self.value_payload[0],
                 self.value_payload[1],
@@ -202,7 +202,7 @@ impl Value {
     }
 
     pub fn as_f64(&self) -> Option<f64> {
-        if self.value_type == ValueType::Float64 && self.value_payload.len() >= 8 {
+        if self.value_payload.len() >= 8 {
             Some(f64::from_le_bytes([
                 self.value_payload[0],
                 self.value_payload[1],
@@ -219,11 +219,7 @@ impl Value {
     }
 
     pub fn as_string(&self) -> Option<String> {
-        if self.value_type == ValueType::String {
-            Some(String::from_utf8_lossy(&self.value_payload).to_string())
-        } else {
-            None
-        }
+        Some(String::from_utf8_lossy(&self.value_payload).to_string())
     }
 
     pub fn as_bytes(&self) -> Vec<u8> {
@@ -231,23 +227,15 @@ impl Value {
     }
 
     pub fn as_i8_array(&self) -> Option<Vec<i8>> {
-        if self.value_type == ValueType::Int8Array {
-            Some(self.value_payload.iter().map(|&b| b as i8).collect())
-        } else {
-            None
-        }
+        Some(self.value_payload.iter().map(|&b| b as i8).collect())
     }
 
     pub fn as_u8_array(&self) -> Option<Vec<u8>> {
-        if self.value_type == ValueType::UInt8Array {
-            Some(self.value_payload.clone())
-        } else {
-            None
-        }
+        Some(self.value_payload.clone())
     }
 
     pub fn as_i16_array(&self) -> Option<Vec<i16>> {
-        if self.value_type == ValueType::Int16Array && self.value_payload.len().is_multiple_of(2) {
+        if self.value_payload.len().is_multiple_of(2) {
             Some(
                 self.value_payload
                     .chunks_exact(2)
@@ -260,7 +248,7 @@ impl Value {
     }
 
     pub fn as_u16_array(&self) -> Option<Vec<u16>> {
-        if self.value_type == ValueType::UInt16Array && self.value_payload.len().is_multiple_of(2) {
+        if self.value_payload.len().is_multiple_of(2) {
             Some(
                 self.value_payload
                     .chunks_exact(2)
@@ -273,7 +261,7 @@ impl Value {
     }
 
     pub fn as_i32_array(&self) -> Option<Vec<i32>> {
-        if self.value_type == ValueType::Int32Array && self.value_payload.len().is_multiple_of(4) {
+        if self.value_payload.len().is_multiple_of(4) {
             Some(
                 self.value_payload
                     .chunks_exact(4)
@@ -286,7 +274,7 @@ impl Value {
     }
 
     pub fn as_u32_array(&self) -> Option<Vec<u32>> {
-        if self.value_type == ValueType::UInt32Array && self.value_payload.len().is_multiple_of(4) {
+        if self.value_payload.len().is_multiple_of(4) {
             Some(
                 self.value_payload
                     .chunks_exact(4)
@@ -299,7 +287,7 @@ impl Value {
     }
 
     pub fn as_i64_array(&self) -> Option<Vec<i64>> {
-        if self.value_type == ValueType::Int64Array && self.value_payload.len().is_multiple_of(8) {
+        if self.value_payload.len().is_multiple_of(8) {
             Some(
                 self.value_payload
                     .chunks_exact(8)
@@ -317,7 +305,7 @@ impl Value {
     }
 
     pub fn as_u64_array(&self) -> Option<Vec<u64>> {
-        if self.value_type == ValueType::UInt64Array && self.value_payload.len().is_multiple_of(8) {
+        if self.value_payload.len().is_multiple_of(8) {
             Some(
                 self.value_payload
                     .chunks_exact(8)
@@ -335,8 +323,7 @@ impl Value {
     }
 
     pub fn as_f32_array(&self) -> Option<Vec<f32>> {
-        if self.value_type == ValueType::Float32Array && self.value_payload.len().is_multiple_of(4)
-        {
+        if self.value_payload.len().is_multiple_of(4) {
             Some(
                 self.value_payload
                     .chunks_exact(4)
@@ -349,8 +336,7 @@ impl Value {
     }
 
     pub fn as_f64_array(&self) -> Option<Vec<f64>> {
-        if self.value_type == ValueType::Float64Array && self.value_payload.len().is_multiple_of(8)
-        {
+        if self.value_payload.len().is_multiple_of(8) {
             Some(
                 self.value_payload
                     .chunks_exact(8)
