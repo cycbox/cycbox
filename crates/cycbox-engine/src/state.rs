@@ -5,6 +5,7 @@ pub struct EngineState {
     pub manifest: Manifest,
     pub running: bool,
     pub connection_count: usize,
+    pub lua_enabled: bool,
 }
 
 impl From<EngineState> for MessageBuilder {
@@ -18,5 +19,6 @@ impl From<EngineState> for MessageBuilder {
                 "connection_count",
                 state.connection_count as u64,
             ))
+            .add_value(Value::new_boolean("lua_enabled", state.lua_enabled))
     }
 }

@@ -36,7 +36,7 @@
 
 --[[
 {
-  "version": "1.12.0",
+  "version": "2.0.0",
   "name": "ESP32 AT",
   "description": "ESP32 AT Commands",
   "configs": [

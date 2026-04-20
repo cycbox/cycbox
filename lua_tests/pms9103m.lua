@@ -79,7 +79,7 @@ end
 
 --[[
 {
-  "version": "1.12.0",
+  "version": "2.0.0",
   "name": "PMS9103M Air Quality Sensor",
   "description": "PMS9103M Air Quality Sensor Parser",
   "configs": [
@@ -111,43 +111,45 @@ end
       }
     }
   ],
-  "dashboard": {
-    "widgets": [
-      {
-        "id": "27J3J04F",
-        "name": "PM2.5",
-        "widget_type": "lineChart",
-        "colspan": 6,
-        "rowspan": 2,
-        "lines": [
-          {
-            "data_value_id": "PM2.5-CF1",
-            "label": "PM2.5-CF1",
-            "color_name": "amber",
-            "width": 2.0,
-            "dash_pattern": "solid",
-            "unit": ""
-          }
-        ]
-      },
-      {
-        "id": "27F0N3OK",
-        "name": "PM1.0-CF1",
-        "widget_type": "lineChart",
-        "colspan": 6,
-        "rowspan": 2,
-        "lines": [
-          {
-            "data_value_id": "PM1.0-CF1",
-            "label": "PM1.0-CF1",
-            "color_name": "red",
-            "width": 2.0,
-            "dash_pattern": "solid",
-            "unit": ""
-          }
-        ]
-      }
-    ]
-  }
+  "dashboards": [
+    {
+      "widgets": [
+        {
+          "id": "27J3J04F",
+          "name": "PM2.5",
+          "widget_type": "lineChart",
+          "colspan": 6,
+          "rowspan": 2,
+          "lines": [
+            {
+              "data_value_id": "PM2.5-CF1",
+              "label": "PM2.5-CF1",
+              "color": 4282557941,
+              "width": 2,
+              "dash_pattern": "solid",
+              "unit": ""
+            }
+          ]
+        },
+        {
+          "id": "27F0N3OK",
+          "name": "PM1.0-CF1",
+          "widget_type": "lineChart",
+          "colspan": 6,
+          "rowspan": 2,
+          "lines": [
+            {
+              "data_value_id": "PM1.0-CF1",
+              "label": "PM1.0-CF1",
+              "color": 4294675456,
+              "width": 2,
+              "dash_pattern": "solid",
+              "unit": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
 }
 ]]

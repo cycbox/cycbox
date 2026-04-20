@@ -35,6 +35,15 @@ pub(crate) enum Command {
         result_sender: oneshot::Sender<Result<EngineState, EngineError>>,
     },
 
+    /// Enable or disable the Lua script.
+    /// When disabled, calls `on_stop` (if running) and replaces the active script with an
+    /// empty no-op script so hooks are skipped. When re-enabled while the engine is running,
+    /// rebuilds the script from the stored manifest and calls `on_start`.
+    SetLuaEnabled {
+        enabled: bool,
+        result_sender: oneshot::Sender<Result<EngineState, EngineError>>,
+    },
+
     /// Hand an inbound message to the engine task for Lua `on_receive` hook processing and broadcast.
     ReceiveMessage(Message),
     /// Notify the engine that a message was successfully transmitted so the Lua `on_send_confirm`

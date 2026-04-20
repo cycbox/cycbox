@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use cycbox_sdk::prelude::*;
+use serde_json::value::Map;
 use std::str;
 
 pub const JSON_TRANSFORMER_ID: &str = "json_transformer";
@@ -12,20 +13,58 @@ impl JsonTransformer {
         Self
     }
 
-    /// Parse JSON object into values
+    /// Recursively flatten a JSON value into a flat map with `.` separator and plain array indices.
+    fn flatten_value(
+        current: &serde_json::Value,
+        parent_key: String,
+        depth: u32,
+        flattened: &mut Map<String, serde_json::Value>,
+    ) {
+        if depth == 0 {
+            if let Some(map) = current.as_object() {
+                for (k, v) in map {
+                    Self::flatten_value(v, k.clone(), 1, flattened);
+                }
+            }
+            return;
+        }
+
+        if let Some(map) = current.as_object() {
+            if map.is_empty() {
+                return;
+            }
+            for (k, v) in map {
+                let key = format!("{}.{}", parent_key, k);
+                Self::flatten_value(v, key, depth + 1, flattened);
+            }
+        } else if let Some(arr) = current.as_array() {
+            if arr.is_empty() {
+                return;
+            }
+            for (i, v) in arr.iter().enumerate() {
+                let key = format!("{}.{}", parent_key, i);
+                Self::flatten_value(v, key, depth + 1, flattened);
+            }
+        } else {
+            flattened.insert(parent_key, current.clone());
+        }
+    }
+
+    /// Parse JSON object into values, flattening nested objects/arrays with `.` separator.
     fn parse_json(&self, timestamp: u64, line: &str) -> Result<Vec<Value>, CycBoxError> {
-        // Fast check: JSON objects must start with '{'
         if !line.starts_with('{') {
             return Err(CycBoxError::InvalidFormat("Not a JSON object".to_string()));
         }
 
-        // Parse JSON object - use IndexMap to preserve key order
-        let json_obj: indexmap::IndexMap<String, serde_json::Value> = serde_json::from_str(line)
+        let json_val: serde_json::Value = serde_json::from_str(line)
             .map_err(|e| CycBoxError::InvalidFormat(format!("Failed to parse JSON: {}", e)))?;
+
+        let mut flat = Map::new();
+        Self::flatten_value(&json_val, String::new(), 0, &mut flat);
 
         let mut values = Vec::new();
 
-        for (key, val) in json_obj {
+        for (key, val) in flat {
             let value = match val {
                 serde_json::Value::Number(n) => {
                     if let Some(i) = n.as_i64() {
@@ -77,14 +116,24 @@ impl JsonTransformer {
 
 impl Transformer for JsonTransformer {
     fn on_receive(&self, message: &mut Message) -> Result<(), CycBoxError> {
-        // Convert message payload to UTF-8 string
         let line = str::from_utf8(&message.payload)
             .map_err(|_| CycBoxError::InvalidFormat("Invalid UTF-8 string".to_string()))?;
 
         let trimmed = line.trim();
 
-        // Parse JSON and extract values
-        let values = self.parse_json(message.timestamp, trimmed)?;
+        let prefix = message
+            .metadata_value("mqtt_topic")
+            .and_then(|v| v.as_string())
+            .map(|topic| topic.replace('/', "."));
+
+        let mut values = self.parse_json(message.timestamp, trimmed)?;
+
+        if let Some(prefix) = prefix {
+            for v in &mut values {
+                v.id = format!("{}.{}", prefix, v.id);
+            }
+        }
+
         message.values.extend(values);
 
         Ok(())

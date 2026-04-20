@@ -1,4 +1,3 @@
-
 -- CycBox Lua Script
 -- Documentation: https://cycbox.io/docs/lua-api/
 
@@ -35,11 +34,9 @@
 --   -- Called before engine stops or script is reloaded
 -- end
 
-
-
 --[[
 {
-  "version": "1.12.0",
+  "version": "2.0.0",
   "name": "AT",
   "description": "ML307R AT Commands",
   "configs": [
@@ -59,11 +56,6 @@
         "serial_port_transport_flow_control": "none"
       },
       "at_codec": {
-        "at_codec_echo_enabled": false,
-        "at_codec_connect_as_success": true,
-        "at_codec_command_not_support_as_error": true,
-        "at_codec_na_as_error": true,
-        "at_codec_at_prompt_enabled": true,
         "at_codec_custom_urc_prefixes": "",
         "at_codec_custom_length_prefixed_urcs": ""
       }

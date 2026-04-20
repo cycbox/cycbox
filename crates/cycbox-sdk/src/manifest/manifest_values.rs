@@ -50,10 +50,10 @@ pub struct ManifestValues {
     #[serde(skip)]
     pub message_input_groups: Vec<MessageInputGroup>,
 
-    /// Raw dashboard configuration. Stored as JSON value without parsing widget types.
-    /// Only present when the dashboard has at least one widget.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dashboard: Option<JsonValue>,
+    /// Raw dashboard configurations. Each entry is a dashboard with title, icon, and widgets.
+    /// Stored as JSON values without parsing widget types.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dashboards: Vec<JsonValue>,
 }
 
 /// Transport group key migrations for versions < 1.12.0
@@ -77,7 +77,7 @@ impl ManifestValues {
             lua_script: None,
             configs: Vec::new(),
             message_input_groups: Vec::new(),
-            dashboard: None,
+            dashboards: Vec::new(),
         }
     }
 
@@ -110,17 +110,18 @@ impl ManifestValues {
             }
         }
 
-        // Only include dashboard if it has widgets
-        let dashboard = manifest
-            .dashboard
-            .as_ref()
+        // Only include dashboards that have widgets
+        let dashboards: Vec<JsonValue> = manifest
+            .dashboards
+            .iter()
             .filter(|d| {
                 d.get("widgets")
                     .and_then(|w| w.as_array())
                     .map(|arr| !arr.is_empty())
                     .unwrap_or(false)
             })
-            .cloned();
+            .cloned()
+            .collect();
 
         Self {
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
@@ -133,7 +134,7 @@ impl ManifestValues {
             lua_script: manifest.lua_script.clone(),
             configs: all_configs,
             message_input_groups: manifest.message_input_groups.clone(),
-            dashboard,
+            dashboards,
         }
     }
 
@@ -437,8 +438,8 @@ impl ManifestValues {
         if !self.message_input_groups.is_empty() {
             merged_manifest.message_input_groups = self.message_input_groups.clone();
         }
-        if let Some(dashboard) = &self.dashboard {
-            merged_manifest.dashboard = Some(dashboard.clone());
+        if !self.dashboards.is_empty() {
+            merged_manifest.dashboards = self.dashboards.clone();
         }
 
         // Merge all configuration values into new config instances

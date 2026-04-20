@@ -139,7 +139,7 @@ end
 
 --[[
 {
-  "version": "1.12.0",
+  "version": "2.0.0",
   "name": "ME31 PT100 Temperature to InfluxDB",
   "description": "Read PT100 temperature from ME31 module via Modbus RTU or TCP, publish to InfluxDB v3",
   "configs": [

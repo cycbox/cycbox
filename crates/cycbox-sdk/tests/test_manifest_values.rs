@@ -407,19 +407,19 @@ fn lua_str_roundtrip() {
 // ---- Dashboard ----
 
 #[test]
-fn from_manifest_dashboard_with_widgets() {
+fn from_manifest_dashboards_with_widgets() {
     let mut manifest = make_manifest_with_schema(vec![]);
-    manifest.dashboard = Some(serde_json::json!({"widgets": [{"type": "line_chart"}]}));
+    manifest.dashboards = vec![serde_json::json!({"widgets": [{"type": "line_chart"}]})];
 
     let mv = ManifestValues::from_manifest(&manifest);
-    assert!(mv.dashboard.is_some());
+    assert_eq!(mv.dashboards.len(), 1);
 }
 
 #[test]
-fn from_manifest_dashboard_empty_widgets() {
+fn from_manifest_dashboards_empty_widgets() {
     let mut manifest = make_manifest_with_schema(vec![]);
-    manifest.dashboard = Some(serde_json::json!({"widgets": []}));
+    manifest.dashboards = vec![serde_json::json!({"widgets": []})];
 
     let mv = ManifestValues::from_manifest(&manifest);
-    assert!(mv.dashboard.is_none());
+    assert!(mv.dashboards.is_empty());
 }

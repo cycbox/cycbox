@@ -119,7 +119,7 @@ end
 
 --[[
 {
-  "version": "1.12.0",
+  "version": "2.0.0",
   "name": "EID041 Modbus RTU to MQTT",
   "description": "Poll EID041 temperature & humidity sensor via Modbus RTU and publish to MQTT in JSON format",
   "configs": [

@@ -61,9 +61,10 @@ pub struct Manifest {
     pub category: PluginCategory,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lua_script: Option<String>,
-    /// Raw dashboard configuration (widgets list). Stored as JSON value without parsing widget types.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dashboard: Option<JsonValue>,
+    /// Raw dashboard configurations. Each entry is a dashboard with title, icon, and widgets.
+    /// Stored as JSON values without parsing widget types.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dashboards: Vec<JsonValue>,
 }
 
 impl Default for Manifest {
@@ -79,7 +80,7 @@ impl Default for Manifest {
             message_input_groups: vec![],
             category: PluginCategory::Transport,
             lua_script: None,
-            dashboard: None,
+            dashboards: vec![],
         }
     }
 }

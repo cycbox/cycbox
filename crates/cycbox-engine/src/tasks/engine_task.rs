@@ -65,6 +65,7 @@ pub(crate) fn start_engine_task(
             manifest,
             running: false,
             connection_count: 0,
+            lua_enabled: true,
         };
 
         // Lua script state — always present; initialised to an empty (no-op) script so that
@@ -132,8 +133,12 @@ pub(crate) fn start_engine_task(
                                 }
                                 state.connection_count = connection_handlers.len();
 
-                                // Initialize Lua script
-                                let lua_code = state.manifest.lua_script.as_deref().unwrap_or("");
+                                // Initialize Lua script (empty if disabled)
+                                let lua_code = if state.lua_enabled {
+                                    state.manifest.lua_script.as_deref().unwrap_or("")
+                                } else {
+                                    ""
+                                };
                                 let configs_refs: Vec<&[FormGroup]> = connection_manifest
                                     .configs
                                     .iter()
@@ -292,8 +297,12 @@ pub(crate) fn start_engine_task(
                                     engine.error(&format!("Lua on_stop error during reload: {e}"));
                                 }
 
-                                // Reload with current manifest script (or empty)
-                                let lua_code = state.manifest.lua_script.as_deref().unwrap_or("");
+                                // Reload with current manifest script (or empty if disabled)
+                                let lua_code = if state.lua_enabled {
+                                    state.manifest.lua_script.as_deref().unwrap_or("")
+                                } else {
+                                    ""
+                                };
                                 let configs_refs: Vec<&[FormGroup]> = state
                                     .manifest
                                     .configs
@@ -317,6 +326,61 @@ pub(crate) fn start_engine_task(
                                 }
                             } else {
                                 let _ = result_sender.send(Ok(state.clone()));
+                            }
+                        }
+                        Command::SetLuaEnabled { enabled, result_sender } => {
+                            if state.lua_enabled == enabled {
+                                let _ = result_sender.send(Ok(state.clone()));
+                            } else {
+                                state.lua_enabled = enabled;
+
+                                if state.running {
+                                    // Tear down the current script
+                                    if let Err(e) = lua_script.on_stop().await {
+                                        engine.error(&format!(
+                                            "Lua on_stop error during set_lua_enabled: {e}"
+                                        ));
+                                    }
+
+                                    let lua_code = if enabled {
+                                        state.manifest.lua_script.as_deref().unwrap_or("")
+                                    } else {
+                                        ""
+                                    };
+                                    let configs_refs: Vec<&[FormGroup]> = state
+                                        .manifest
+                                        .configs
+                                        .iter()
+                                        .map(|c| c.as_slice())
+                                        .collect();
+                                    match LuaScript::new(
+                                        lua_code,
+                                        &configs_refs,
+                                        engine.clone(),
+                                        lua_helper_registry,
+                                        connection_command_senders.clone(),
+                                    ) {
+                                        Ok(mut script) => {
+                                            if let Err(e) = script.on_start().await {
+                                                engine.error(&format!(
+                                                    "Lua on_start error after set_lua_enabled: {e}"
+                                                ));
+                                            }
+                                            lua_script = script;
+                                            let _ = result_sender.send(Ok(state.clone()));
+                                        }
+                                        Err(e) => {
+                                            engine.error(&format!(
+                                                "Failed to rebuild Lua script: {e}"
+                                            ));
+                                            let _ = result_sender.send(Err(EngineError::Engine(
+                                                format!("Failed to rebuild Lua script: {e}"),
+                                            )));
+                                        }
+                                    }
+                                } else {
+                                    let _ = result_sender.send(Ok(state.clone()));
+                                }
                             }
                         }
                         Command::Command { command, result_sender } => {

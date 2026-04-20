@@ -185,7 +185,7 @@ end
 
 --[[
 {
-  "version": "1.12.0",
+  "version": "2.0.0",
   "name": "PMS9103M Air Quality Monitor with Notifications",
   "description": "Parses PMS9103M sensor data and sends PM2.5 alerts via Discord, ntfy, and SMTP",
   "configs": [

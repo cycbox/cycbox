@@ -409,7 +409,7 @@ dependencies = [
 
 [[package]]
 name = "cycbox-engine"
-version = "1.12.0"
+version = "2.0.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -431,7 +431,7 @@ dependencies = [
 
 [[package]]
 name = "cycbox-runtime"
-version = "1.12.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -457,7 +457,7 @@ dependencies = [
 
 [[package]]
 name = "cycbox-sdk"
-version = "1.12.0"
+version = "2.0.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -475,7 +475,7 @@ dependencies = [
 
 [[package]]
 name = "cycbox-serialport"
-version = "1.12.0"
+version = "2.0.0"
 dependencies = [
  "envconfig",
  "futures",
@@ -2366,7 +2366,7 @@ dependencies = [
 
 [[package]]
 name = "serialport-transport"
-version = "1.12.0"
+version = "2.0.0"
 dependencies = [
  "async-trait",
  "cycbox-sdk",

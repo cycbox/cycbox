@@ -313,6 +313,32 @@ impl Engine {
         Ok(())
     }
 
+    /// Enable or disable Lua script execution.
+    ///
+    /// When disabled, the currently loaded script has `on_stop` called and is replaced with an
+    /// empty no-op script so hooks are skipped. When re-enabled while the engine is running,
+    /// the script is rebuilt from the stored manifest and `on_start` is called.
+    /// The flag is persisted on the engine state and is respected by the next `start`.
+    pub async fn set_lua_enabled(
+        &self,
+        module: impl Into<String>,
+        enabled: bool,
+    ) -> Result<(), EngineError> {
+        self.clear_last_logs();
+        let (result_sender, result_receiver) = oneshot::channel();
+        self.sender
+            .send(Command::SetLuaEnabled {
+                enabled,
+                result_sender,
+            })
+            .await?;
+        let result = result_receiver.await?;
+        let state = result?;
+        let message = with_module_action(state.into(), module, "set_lua_enabled").build();
+        self.broadcast(message);
+        Ok(())
+    }
+
     /// Return `true` if the engine is currently running (connection tasks are active).
     pub async fn is_running(&self) -> bool {
         self.get_state().await.map(|s| s.running).unwrap_or(false)

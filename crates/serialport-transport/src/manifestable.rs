@@ -63,7 +63,7 @@ pub(crate) fn serial_manifest(locale: &str) -> Manifest {
                     options: Some(port_options),
                     is_required: true,
                     condition: None,
-                    span: 8,
+                    span: 5,
                 },
                 FormField {
                     key: format!("{}_baud_rate", SERIAL_PORT_TRANSPORT_ID),
@@ -85,7 +85,7 @@ pub(crate) fn serial_manifest(locale: &str) -> Manifest {
                     ]),
                     is_required: true,
                     condition: None,
-                    span: 4,
+                    span: 3,
                 },
                 FormField {
                     key: format!("{}_data_bits", SERIAL_PORT_TRANSPORT_ID),
@@ -101,7 +101,7 @@ pub(crate) fn serial_manifest(locale: &str) -> Manifest {
                     ]),
                     is_required: true,
                     condition: None,
-                    span: 3,
+                    span: 2,
                 },
                 FormField {
                     key: format!("{}_parity", SERIAL_PORT_TRANSPORT_ID),
@@ -125,7 +125,7 @@ pub(crate) fn serial_manifest(locale: &str) -> Manifest {
                     ]),
                     is_required: true,
                     condition: None,
-                    span: 3,
+                    span: 2,
                 },
                 FormField {
                     key: format!("{}_stop_bits", SERIAL_PORT_TRANSPORT_ID),
@@ -145,7 +145,7 @@ pub(crate) fn serial_manifest(locale: &str) -> Manifest {
                     ]),
                     is_required: true,
                     condition: None,
-                    span: 3,
+                    span: 2,
                 },
                 FormField {
                     key: format!("{}_flow_control", SERIAL_PORT_TRANSPORT_ID),
@@ -169,7 +169,7 @@ pub(crate) fn serial_manifest(locale: &str) -> Manifest {
                     ]),
                     is_required: true,
                     condition: None,
-                    span: 3,
+                    span: 2,
                 },
             ],
             condition: None,

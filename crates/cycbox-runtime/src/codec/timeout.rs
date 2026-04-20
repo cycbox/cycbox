@@ -57,12 +57,12 @@ impl Manifestable for TimeoutCodec {
             config_schema: vec![FormGroup {
                 key: TIMEOUT_CODEC_ID.to_string(),
                 label: l10n.get(locale, "timeout-codec"),
-                description: None,
+                description: Some(l10n.get(locale, "timeout-codec-timeout-description")),
                 fields: vec![FormField {
                     key: "with_receive_timeout".to_string(),
                     field_type: FieldType::IntegerInput,
                     label: l10n.get(locale, "timeout-codec-timeout-label"),
-                    description: Some(l10n.get(locale, "timeout-codec-timeout-description")),
+                    description: None,
                     values: Some(vec![FormValue::Integer(100)]),
                     options: None,
                     is_required: true,

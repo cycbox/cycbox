@@ -75,7 +75,7 @@ end
 
 --[[
 {
-  "version": "1.12.0",
+  "version": "2.0.0",
   "name": "Senseair S8 CO2 Sensor to TimescaleDB",
   "description": "Modbus RTU with TimescaleDB Storage",
   "configs": [

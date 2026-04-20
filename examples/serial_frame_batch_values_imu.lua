@@ -119,7 +119,7 @@ end
 
 --[[
 {
-  "version": "1.12.0",
+  "version": "2.0.0",
   "name": "Serial Frame: Batch Values (IMU)",
   "description": "Parse multiple IMU samples from a single serial frame, with MCU-clock-based timestamp reconstruction",
   "configs": [
@@ -151,81 +151,99 @@ end
       }
     }
   ],
-  "dashboard": {
-    "widgets": [
-      {
-        "id": "27JMTSW3",
-        "name": "ax, ay",
-        "widget_type": "lineChart",
-        "colspan": 4,
-        "rowspan": 2,
-        "lines": [
-          {
-            "data_value_id": "ax",
-            "label": "ax",
-            "color_name": "red",
-            "width": 2.0,
-            "dash_pattern": "solid",
-            "unit": ""
-          },
-          {
-            "data_value_id": "ay",
-            "label": "ay",
-            "color_name": "blue",
-            "width": 2.0,
-            "dash_pattern": "solid",
-            "unit": ""
-          }
-        ]
-      },
-      {
-        "id": "28URBWNH",
-        "name": "gx, gy",
-        "widget_type": "lineChart",
-        "colspan": 4,
-        "rowspan": 2,
-        "lines": [
-          {
-            "data_value_id": "gx",
-            "label": "gx",
-            "color_name": "green",
-            "width": 2.0,
-            "dash_pattern": "solid",
-            "unit": ""
-          },
-          {
-            "data_value_id": "gy",
-            "label": "gy",
-            "color_name": "amber",
-            "width": 2.0,
-            "dash_pattern": "solid",
-            "unit": ""
-          }
-        ]
-      },
-      {
-        "id": "28FIA70Q",
-        "name": "FFT: ax",
-        "widget_type": "fftChart",
-        "colspan": 2,
-        "rowspan": 2,
-        "data_value_id": "ax",
-        "color_name": "red",
-        "unit": "",
-        "remove_dc": false
-      },
-      {
-        "id": "28R9SLZY",
-        "name": "FFT: gx",
-        "widget_type": "fftChart",
-        "colspan": 2,
-        "rowspan": 2,
-        "data_value_id": "gx",
-        "color_name": "green",
-        "unit": "",
-        "remove_dc": false
-      }
-    ]
-  }
+  "dashboards": [
+    {
+      "widgets": [
+        {
+          "id": "19M21QFT",
+          "name": "accel",
+          "widget_type": "lineChart",
+          "colspan": 4,
+          "rowspan": 2,
+          "lines": [
+            {
+              "data_value_id": "ax",
+              "label": "ax",
+              "color": 4282557941,
+              "width": 1,
+              "dash_pattern": "solid",
+              "unit": "m/s²"
+            },
+            {
+              "data_value_id": "ay",
+              "label": "ay",
+              "color": 4293874512,
+              "width": 1,
+              "dash_pattern": "solid",
+              "unit": "m/s²"
+            },
+            {
+              "data_value_id": "az",
+              "label": "az",
+              "color": 4284922730,
+              "width": 1,
+              "dash_pattern": "solid",
+              "unit": "m/s²"
+            }
+          ]
+        },
+        {
+          "id": "19JZOCLP",
+          "name": "Gyro",
+          "widget_type": "lineChart",
+          "colspan": 4,
+          "rowspan": 2,
+          "lines": [
+            {
+              "data_value_id": "gx",
+              "label": "gx",
+              "color": 4282557941,
+              "width": 1,
+              "dash_pattern": "solid",
+              "unit": "dps"
+            },
+            {
+              "data_value_id": "gy",
+              "label": "gy",
+              "color": 4293874512,
+              "width": 1,
+              "dash_pattern": "solid",
+              "unit": "dps"
+            },
+            {
+              "data_value_id": "gz",
+              "label": "gz",
+              "color": 4284922730,
+              "width": 1,
+              "dash_pattern": "solid",
+              "unit": "dps"
+            }
+          ]
+        },
+        {
+          "id": "19KX6V7X",
+          "name": "FFT-AX",
+          "widget_type": "fftChart",
+          "colspan": 2,
+          "rowspan": 2,
+          "data_value_id": "ax",
+          "color": 4282557941,
+          "unit": "",
+          "remove_dc": false
+        },
+        {
+          "id": "193K7Q60",
+          "name": "FFT-GX",
+          "widget_type": "fftChart",
+          "colspan": 2,
+          "rowspan": 2,
+          "data_value_id": "gx",
+          "color": 4282557941,
+          "unit": "",
+          "remove_dc": false
+        }
+      ]
+    }
+  ]
 }
 ]]
