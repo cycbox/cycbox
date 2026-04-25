@@ -13,6 +13,10 @@ This repository contains the open-source core of CycBox, licensed under [MPL-2.0
 * **Linux:** Depends on the GTK library. A deb package is provided with support for x64 and arm64
   architectures: https://github.com/cycbox/cycbox/releases
 
+
+https://github.com/user-attachments/assets/a5c4d632-ca7d-47c5-8f48-c344eca54d42
+
+
 https://github.com/user-attachments/assets/16c84e68-142e-40c4-a865-61ac7b14a933
 
 ## Main Features
