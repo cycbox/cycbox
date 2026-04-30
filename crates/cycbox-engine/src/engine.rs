@@ -7,8 +7,8 @@ use chrono::Local;
 use cycbox_sdk::lua::LuaEngine;
 use cycbox_sdk::message::UNKNOW_CONNECTION_ID;
 use cycbox_sdk::{
-    Color, Content, ContentType, Decoration, MESSAGE_TYPE_LOG, Manifest, Message, MessageBuilder,
-    RunMode, Value,
+    Color, Content, ContentType, Decoration, MESSAGE_TYPE_LOG, MESSAGE_TYPE_RX, MESSAGE_TYPE_TX,
+    Manifest, Message, MessageBuilder, RunMode, Value,
 };
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
@@ -61,7 +61,7 @@ pub struct Engine {
     message_broadcast: broadcast::Sender<Message>,
     is_debug: bool,
     last_logs: Arc<RwLock<VecDeque<String>>>,
-    // history: Arc<RwLock<VecDeque<Message>>>
+    history: Arc<RwLock<VecDeque<Message>>>,
 }
 
 impl Engine {
@@ -75,6 +75,7 @@ impl Engine {
             message_broadcast,
             is_debug,
             last_logs: Arc::new(RwLock::new(VecDeque::new())),
+            history: Arc::new(RwLock::new(VecDeque::new())),
         };
         // engine task should exit when sender is dropped
         start_engine_task(EngineRef(engine.clone()), run_mode, receiver);
@@ -87,8 +88,35 @@ impl Engine {
 
     /// Broadcast a message directly to all subscribers without going through the engine task.
     /// Non-blocking — never waits for a oneshot reply.
+    /// Also appends RX, TX, and LOG messages to the history ring buffer (capped at 64).
     pub(crate) fn broadcast(&self, message_or_event: Message) {
+        if matches!(
+            message_or_event.message_type.as_str(),
+            MESSAGE_TYPE_RX | MESSAGE_TYPE_TX | MESSAGE_TYPE_LOG
+        ) {
+            if let Ok(mut history) = self.history.write() {
+                if history.len() >= 64 {
+                    history.pop_front();
+                }
+                history.push_back(message_or_event.clone());
+            }
+        }
         let _ = self.message_broadcast.send(message_or_event);
+    }
+
+    /// Return a snapshot of the history ring buffer (up to 64 RX/TX/LOG messages).
+    pub fn get_history(&self) -> Vec<Message> {
+        self.history
+            .read()
+            .map(|h| h.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Clear the history ring buffer.
+    pub fn clear_history(&self) {
+        if let Ok(mut history) = self.history.write() {
+            history.clear();
+        }
     }
 
     /// Subscribe to the broadcast channel to receive all messages and events.
@@ -249,6 +277,7 @@ impl Engine {
         manifest: Option<Manifest>,
     ) -> Result<(), EngineError> {
         self.clear_last_logs();
+        self.clear_history();
         let (result_sender, result_receiver) = oneshot::channel();
         self.sender
             .send(Command::Start {
@@ -266,7 +295,6 @@ impl Engine {
     /// Stop the engine, cancel all connection tasks, and broadcast the new state.
     /// Calls the Lua `on_stop` hook before tearing down connections.
     pub async fn stop(&self, module: impl Into<String>) -> Result<(), EngineError> {
-        self.clear_last_logs();
         let (result_sender, result_receiver) = oneshot::channel();
         self.sender.send(Command::Stop { result_sender }).await?;
         let result = result_receiver.await?;
@@ -297,7 +325,10 @@ impl Engine {
         lua_script: Option<String>,
         reload: bool,
     ) -> Result<(), EngineError> {
-        self.clear_last_logs();
+        if reload {
+            self.clear_last_logs();
+            self.clear_history();
+        }
         let (result_sender, result_receiver) = oneshot::channel();
         self.sender
             .send(Command::SetLuaScript {
@@ -324,7 +355,10 @@ impl Engine {
         module: impl Into<String>,
         enabled: bool,
     ) -> Result<(), EngineError> {
-        self.clear_last_logs();
+        if enabled {
+            self.clear_last_logs();
+            self.clear_history();
+        }
         let (result_sender, result_receiver) = oneshot::channel();
         self.sender
             .send(Command::SetLuaEnabled {

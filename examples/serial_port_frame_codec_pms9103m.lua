@@ -22,7 +22,7 @@
 --   Bytes 22-23: Particles >10μm per 0.1L air
 
 function on_receive()
-  -- Access the payload directly as a field (not a method)
+  -- `message` has 32 bytes frame and payload of 26 bytes, we should access the payload directly
   local payload = message.payload
 
   -- PMS9103M payload should be 26 bytes
