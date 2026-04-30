@@ -7,7 +7,17 @@ cross-platform support.
 
 This repository contains the open-source core of CycBox, licensed under [MPL-2.0](./LICENSE).
 
-https://github.com/user-attachments/assets/51087a43-ac56-45aa-8bcc-d1713417741e
+## Download and Installation
+
+* **Windows:** Install directly from the Microsoft Store: https://apps.microsoft.com/detail/9n9d7d1mv4sf
+* **Linux:** Depends on the GTK library. A deb package is provided with support for x64 and arm64
+  architectures: https://github.com/cycbox/cycbox/releases
+
+
+https://github.com/user-attachments/assets/a5c4d632-ca7d-47c5-8f48-c344eca54d42
+
+
+https://github.com/user-attachments/assets/16c84e68-142e-40c4-a865-61ac7b14a933
 
 ## Main Features
 
@@ -33,12 +43,6 @@ Official Website: https://cycbox.io
 | [cycbox-runtime](./crates/cycbox-runtime/)             | Codecs (COBS, SLIP, line), transformers (CSV, JSON), and Lua extensions         |
 | [cycbox-serialport](./crates/cycbox-serialport/)       | Cross-platform serial port driver with async Tokio support                      |
 | [serialport-transport](./crates/serialport-transport/) | Serial port transport layer with manifest-driven configuration                  |
-
-## Download and Installation
-
-* **Windows:** Install directly from the Microsoft Store: https://apps.microsoft.com/detail/9n9d7d1mv4sf
-* **Linux:** Depends on the GTK library. A deb package is provided with support for x64 and arm64
-  architectures: https://github.com/cycbox/cycbox/releases
 
 ## License
 
