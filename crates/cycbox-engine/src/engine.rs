@@ -93,13 +93,12 @@ impl Engine {
         if matches!(
             message_or_event.message_type.as_str(),
             MESSAGE_TYPE_RX | MESSAGE_TYPE_TX | MESSAGE_TYPE_LOG
-        ) {
-            if let Ok(mut history) = self.history.write() {
-                if history.len() >= 64 {
-                    history.pop_front();
-                }
-                history.push_back(message_or_event.clone());
+        ) && let Ok(mut history) = self.history.write()
+        {
+            if history.len() >= 64 {
+                history.pop_front();
             }
+            history.push_back(message_or_event.clone());
         }
         let _ = self.message_broadcast.send(message_or_event);
     }
