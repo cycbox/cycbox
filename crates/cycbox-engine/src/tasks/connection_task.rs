@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::Receiver;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
@@ -20,6 +20,9 @@ const MAX_OUTBOX_LEN: usize = 64;
 const OUTBOX_WARN_THRESHOLD: usize = 8;
 /// Retry interval for draining queued outbound messages.
 const OUTBOX_RETRY_INTERVAL: Duration = Duration::from_millis(100);
+/// Bound for the raw-byte observation channel between `CodecTransport` and
+/// the connection task.
+const RAW_OBSERVER_BUF: usize = 256;
 
 enum DrainOutcome {
     Idle,
@@ -125,6 +128,16 @@ pub(crate) fn start_connection(
 
             let mut connection = Connection::new(connection_id, transport, transformer, encoding);
 
+            // Bounded raw-byte observer channel. `CodecTransport` notifies this
+            // with every chunk read from the underlying byte stream.
+            let (raw_rx_sender, mut raw_rx_receiver) =
+                mpsc::channel::<RawBytes>(RAW_OBSERVER_BUF);
+            if connection_id == 0 {
+                connection.set_raw_observer(Some(RawByteObserver {
+                    rx: raw_rx_sender,
+                }));
+            }
+
             // Per-connection outbox for messages deferred by codec back-pressure
             // (e.g. half-duplex Modbus RTU returning `CycBoxError::Pending` while a
             // request is awaiting its response).
@@ -228,6 +241,15 @@ pub(crate) fn start_connection(
                     Some((cmd, resp_sender)) = command_receiver.recv() => {
                         let response = connection.handle_command(&cmd).await;
                         let _ = resp_sender.send(response);
+                    }
+                    Some(raw) = raw_rx_receiver.recv() => {
+                        let msg = MessageBuilder::new()
+                            .message_type(MESSAGE_TYPE_RAW_RX)
+                            .connection_id(connection_id)
+                            .timestamp(raw.timestamp)
+                            .frame(raw.bytes)
+                            .build();
+                        engine.broadcast(msg);
                     }
                 }
             }

@@ -18,15 +18,15 @@ pub use manifest::{
     ValidationError,
 };
 
-pub use message::{COMMAND_ID_CLEAR_HIGHLIGHT, COMMAND_ID_SET_HIGHLIGHT};
+pub use message::{COMMAND_ID_CLEAR_HIGHLIGHT, COMMAND_ID_SEND_RAW, COMMAND_ID_SET_HIGHLIGHT};
 
 pub use message::{
     Color, Content, ContentType, Decoration, Message, MessageBuilder, PayloadType, Value, ValueType,
 };
 
 pub use message::{
-    MESSAGE_TYPE_EVENT, MESSAGE_TYPE_LOG, MESSAGE_TYPE_REQUEST, MESSAGE_TYPE_RESPONSE,
-    MESSAGE_TYPE_RX, MESSAGE_TYPE_TX,
+    MESSAGE_TYPE_EVENT, MESSAGE_TYPE_LOG, MESSAGE_TYPE_RAW_RX, MESSAGE_TYPE_REQUEST,
+    MESSAGE_TYPE_RESPONSE, MESSAGE_TYPE_RX, MESSAGE_TYPE_TX,
 };
 
 pub use l10n::{L10n, LocaleProvider, create_l10n_with_provider};
@@ -36,4 +36,4 @@ pub use error::CycBoxError;
 
 pub use run_mode::RunMode;
 pub use transformer::Transformer;
-pub use transport::{MessageTransport, TransportIO};
+pub use transport::{MessageTransport, RawByteObserver, RawBytes, TransportIO};

@@ -29,6 +29,11 @@ impl Connection {
         }
     }
 
+    /// Install raw-byte observers on the underlying transport.
+    pub fn set_raw_observer(&mut self, observer: Option<RawByteObserver>) {
+        self.transport.set_raw_observer(observer);
+    }
+
     /// Receive a message from the transport, apply transformer and formatting,
     /// and inject the connection_id.
     ///

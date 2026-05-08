@@ -10,7 +10,9 @@ pub use crate::codec::Codec;
 pub use crate::error::CycBoxError;
 pub use crate::manifest::{Configurable, Manifestable};
 pub use crate::transformer::Transformer;
-pub use crate::transport::{CodecTransport, MessageTransport, Transport, TransportIO};
+pub use crate::transport::{
+    CodecTransport, MessageTransport, RawByteObserver, RawBytes, Transport, TransportIO,
+};
 
 // Manifest and form schema
 pub use crate::manifest::{
@@ -18,15 +20,17 @@ pub use crate::manifest::{
     FormValue, Manifest, ManifestValues, PluginCategory, ValidationError,
 };
 
-pub use crate::message::{COMMAND_ID_CLEAR_HIGHLIGHT, COMMAND_ID_SET_HIGHLIGHT};
+pub use crate::message::{
+    COMMAND_ID_CLEAR_HIGHLIGHT, COMMAND_ID_SEND_RAW, COMMAND_ID_SET_HIGHLIGHT,
+};
 
 pub use crate::message::{
     Color, Content, ContentType, Decoration, Message, MessageBuilder, PayloadType, Value, ValueType,
 };
 
 pub use crate::message::{
-    MESSAGE_TYPE_EVENT, MESSAGE_TYPE_LOG, MESSAGE_TYPE_REQUEST, MESSAGE_TYPE_RESPONSE,
-    MESSAGE_TYPE_RX, MESSAGE_TYPE_TX,
+    MESSAGE_TYPE_EVENT, MESSAGE_TYPE_LOG, MESSAGE_TYPE_RAW_RX, MESSAGE_TYPE_REQUEST,
+    MESSAGE_TYPE_RESPONSE, MESSAGE_TYPE_RX, MESSAGE_TYPE_TX,
 };
 
 pub use crate::run_mode::RunMode;

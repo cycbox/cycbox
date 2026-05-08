@@ -38,10 +38,12 @@ pub const MESSAGE_TYPE_LOG: &str = "log";
 pub const MESSAGE_TYPE_EVENT: &str = "event";
 pub const MESSAGE_TYPE_REQUEST: &str = "request";
 pub const MESSAGE_TYPE_RESPONSE: &str = "response";
+pub const MESSAGE_TYPE_RAW_RX: &str = "raw_rx";
 
 /// Command IDs for MESSAGE_TYPE_REQUEST and MESSAGE_TYPE_RESPONSE
 pub const COMMAND_ID_SET_HIGHLIGHT: &str = "set_highlight";
 pub const COMMAND_ID_CLEAR_HIGHLIGHT: &str = "clear_highlight";
+pub const COMMAND_ID_SEND_RAW: &str = "send_raw";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {

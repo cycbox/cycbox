@@ -1,10 +1,27 @@
-use crate::{Codec, CycBoxError, FormGroup, Manifestable, Message};
+use crate::{
+    COMMAND_ID_SEND_RAW, Codec, CycBoxError, FormGroup, Manifestable, Message, MessageBuilder,
+};
 use async_trait::async_trait;
 use bytes::BytesMut;
 use log::{debug, warn};
 use std::collections::VecDeque;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::sync::mpsc;
+
+/// A raw-byte observation captured from the underlying byte-stream transport.
+#[derive(Debug, Clone)]
+pub struct RawBytes {
+    /// Microseconds since UNIX_EPOCH at the moment the bytes were observed.
+    pub timestamp: u64,
+    pub bytes: Vec<u8>,
+}
+
+/// Bounded sink that a stream-based transport notifies on every read.
+#[derive(Clone)]
+pub struct RawByteObserver {
+    pub rx: mpsc::Sender<RawBytes>,
+}
 
 #[async_trait]
 pub trait Transport: Manifestable + Send + Sync {
@@ -52,6 +69,11 @@ pub trait MessageTransport: Send + Unpin {
     async fn handle_command(&mut self, _command: &Message) -> Option<Message> {
         None
     }
+
+    /// Install observers that receive raw bytes flowing through the transport
+    /// (pre-decode for RX, post-encode for TX). Default no-op; only stream-based
+    /// transports backed by `CodecTransport` honour this. Pass `None` to detach.
+    fn set_raw_observer(&mut self, _observer: Option<RawByteObserver>) {}
 }
 
 const MAX_BUFFER_SIZE: usize = 1024 * 1024 * 1024;
@@ -70,6 +92,7 @@ pub struct CodecTransport {
     read_buf: Vec<u8>,
     timeout_duration: Duration,
     pending_messages: VecDeque<Message>,
+    raw_observer: Option<RawByteObserver>,
 }
 
 impl CodecTransport {
@@ -85,6 +108,7 @@ impl CodecTransport {
             read_buf: vec![0u8; 102400],
             timeout_duration,
             pending_messages: VecDeque::new(),
+            raw_observer: None,
         }
     }
 }
@@ -125,6 +149,16 @@ impl MessageTransport for CodecTransport {
                     return Ok(self.pending_messages.pop_front());
                 }
                 Ok(Ok(n)) => {
+                    // Surface raw bytes before any decode work runs — this guarantees
+                    // the UI sees them even if the codec mishandles the buffer.
+                    if let Some(ref observer) = self.raw_observer {
+                        let raw = RawBytes {
+                            timestamp: Message::current_timestamp(),
+                            bytes: self.read_buf[..n].to_vec(),
+                        };
+                        let _ = observer.rx.try_send(raw);
+                    }
+
                     // Data received
                     if self.buffer.len() + n > MAX_BUFFER_SIZE {
                         warn!(
@@ -187,9 +221,28 @@ impl MessageTransport for CodecTransport {
     }
 
     async fn handle_command(&mut self, command: &Message) -> Option<Message> {
+        if command.get_command() == COMMAND_ID_SEND_RAW {
+            let bytes = command.param("bytes").and_then(|v| v.as_u8_array());
+            if bytes.is_none() {
+                return Some(
+                    MessageBuilder::response_error(command, "missing 'bytes' parameter").build(),
+                );
+            }
+            let bytes = bytes.unwrap();
+            if !bytes.is_empty()
+                && let Err(e) = self.transport.write_all(&bytes).await
+            {
+                return Some(MessageBuilder::response_error(command, e.to_string()).build());
+            }
+            return Some(MessageBuilder::response_success(command).build());
+        }
         if let Some(response) = self.codec.handle_command(command).await {
             return Some(response);
         }
         self.transport.handle_command(command).await
+    }
+
+    fn set_raw_observer(&mut self, observer: Option<RawByteObserver>) {
+        self.raw_observer = observer;
     }
 }
