@@ -14,6 +14,7 @@ use tokio::runtime::{Builder, Runtime};
 pub use engine::Engine;
 pub use error::EngineError;
 pub use lua::DEFAULT_LUA_SCRIPT;
+pub use state::EngineState;
 
 // Initialize rustls crypto provider for WebSocket TLS support
 static RUSTLS_CRYPTO_PROVIDER: Lazy<()> = Lazy::new(|| {

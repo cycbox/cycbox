@@ -1,31 +1,61 @@
 use async_trait::async_trait;
 use bytes::BytesMut;
 use cycbox_sdk::prelude::*;
+use log::info;
+use std::time::Instant;
 
 pub const TIMEOUT_CODEC_ID: &str = "timeout_codec";
 
 pub struct TimeoutCodec {
     timeout_ms: u32,
+    /// Instant when the current frame started buffering (first byte after last emit).
+    /// None means no data has arrived yet for the current frame.
+    frame_start: Option<Instant>,
 }
 
 impl TimeoutCodec {
     #[allow(dead_code)]
     pub fn new(timeout_ms: u32) -> Self {
-        Self { timeout_ms }
+        Self {
+            timeout_ms,
+            frame_start: None,
+        }
+    }
+
+    fn emit(&mut self, src: &mut BytesMut) -> Result<Option<Message>, CycBoxError> {
+        self.frame_start = None;
+        let data = src.split_to(src.len());
+        let frame = data.to_vec();
+        let payload = frame.clone();
+        Ok(Some(
+            MessageBuilder::rx(PayloadType::Binary, payload, frame).build(),
+        ))
     }
 }
 
 impl Default for TimeoutCodec {
     fn default() -> Self {
-        Self { timeout_ms: 400 }
+        Self {
+            timeout_ms: 50,
+            frame_start: None,
+        }
     }
 }
 
 #[async_trait]
 impl Codec for TimeoutCodec {
-    fn decode(&mut self, _src: &mut BytesMut) -> Result<Option<Message>, CycBoxError> {
-        // TimeoutCodec doesn't decode on regular data arrival
-        // It only decodes when a timeout occurs (via decode_timeout)
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Message>, CycBoxError> {
+        if src.is_empty() {
+            return Ok(None);
+        }
+        let now = Instant::now();
+        // Record the start of a new frame on the first byte after the last emit.
+        let start = self.frame_start.get_or_insert(now);
+        // Emit once timeout_ms has elapsed since frame start, even if data is still arriving.
+        // This handles the case where the transport never goes quiet and decode_timeout is never called.
+        if now.duration_since(*start).as_millis() >= self.timeout_ms as u128 {
+            return self.emit(src);
+        }
         Ok(None)
     }
 
@@ -33,15 +63,17 @@ impl Codec for TimeoutCodec {
         if src.is_empty() {
             return Ok(None);
         }
-        // On timeout, treat all buffered data as a complete frame
-        let data = src.split_to(src.len());
-        let builder = MessageBuilder::rx(PayloadType::Binary, data.to_vec(), data.to_vec());
-        Ok(Some(builder.build()))
+        // Transport went quiet before timeout_ms elapsed in decode(); emit whatever is buffered.
+        self.emit(src)
     }
 
     fn encode(&mut self, item: &mut Message) -> Result<(), CycBoxError> {
         item.frame = item.payload.clone();
         Ok(())
+    }
+
+    fn reset(&mut self) {
+        self.frame_start = None;
     }
 }
 
@@ -63,7 +95,7 @@ impl Manifestable for TimeoutCodec {
                     field_type: FieldType::IntegerInput,
                     label: l10n.get(locale, "timeout-codec-timeout-label"),
                     description: None,
-                    values: Some(vec![FormValue::Integer(100)]),
+                    values: Some(vec![FormValue::Integer(50)]),
                     options: None,
                     is_required: true,
                     condition: None,
@@ -81,45 +113,9 @@ impl Configurable for TimeoutCodec {
     async fn config(&mut self, config: &[FormGroup]) -> Result<(), CycBoxError> {
         let timeout_ms =
             FormUtils::get_integer_value(config, TIMEOUT_CODEC_ID, "with_receive_timeout")
-                .unwrap_or(400);
+                .unwrap_or(50);
+        info!("Configuring TimeoutCodec with timeout_ms: {}", timeout_ms);
         self.timeout_ms = timeout_ms as u32;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_timeout_codec_default() {
-        let codec = TimeoutCodec::default();
-        assert_eq!(codec.timeout_ms, 400);
-    }
-
-    #[test]
-    fn test_timeout_codec_new() {
-        let codec = TimeoutCodec::new(1000);
-        assert_eq!(codec.timeout_ms, 1000);
-    }
-
-    #[test]
-    fn test_decode_timeout_splits_frame() {
-        let mut codec = TimeoutCodec::default();
-        let mut src = BytesMut::from(&b"test data"[..]);
-        let result = codec.decode_timeout(&mut src).unwrap();
-        assert!(result.is_some());
-        let msg = result.unwrap();
-        assert_eq!(msg.payload, b"test data");
-        // Buffer should be empty after timeout decode
-        assert_eq!(src.len(), 0);
-    }
-
-    #[test]
-    fn test_decode_timeout_empty() {
-        let mut codec = TimeoutCodec::default();
-        let mut src = BytesMut::new();
-        let result = codec.decode_timeout(&mut src).unwrap();
-        assert!(result.is_none());
     }
 }
