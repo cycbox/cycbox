@@ -13,4 +13,4 @@ cycbox-serialport = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true }
 rust-embed = { workspace = true }
-log = "0.4.27"
+log = { workspace = true }

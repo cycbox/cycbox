@@ -17,9 +17,9 @@ async-trait = { workspace = true }
 fluent-bundle = { workspace = true }
 unic-langid = { workspace = true }
 rust-embed = { workspace = true }
-log = "0.4.28"
+log = { workspace = true }
 bytes = { workspace = true }
-schemars = "1.0"
+schemars = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

@@ -15,13 +15,13 @@ categories = ["hardware-support"]
 
 [dependencies]
 serialport.workspace = true
-tokio = { version = "1", features = ["net"] }
-futures = "0.3.31"
-mio = "1.0.4"
+tokio = { workspace = true }
+futures = { workspace = true }
+mio = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.30.1", features = ["term"] }
-libc = "0.2.176"
+nix = { version = "0.31.2", features = ["term"] }
+libc = "0.2.186"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [
