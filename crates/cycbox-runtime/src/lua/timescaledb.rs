@@ -199,7 +199,7 @@ fn extract_params(table: &mlua::Table, fn_name: &str) -> Result<Vec<SqlParam>, m
                     .to_string();
                 SqlParam::Text(rust_string)
             }
-            mlua::Value::Integer(n) => SqlParam::Int(n),
+            mlua::Value::Integer(n) => SqlParam::Int(n.into()),
             mlua::Value::Number(n) => SqlParam::Float(n),
             mlua::Value::Boolean(b) => SqlParam::Bool(b),
             _ => {
@@ -234,7 +234,7 @@ fn value_to_sql_param(
                 .to_string();
             Ok(SqlParam::Text(rust_string))
         }
-        mlua::Value::Integer(n) => Ok(SqlParam::Int(n)),
+        mlua::Value::Integer(n) => Ok(SqlParam::Int(n.into())),
         mlua::Value::Number(n) => Ok(SqlParam::Float(n)),
         mlua::Value::Boolean(b) => Ok(SqlParam::Bool(b)),
         _ => Err(mlua::Error::RuntimeError(format!(
