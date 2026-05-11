@@ -199,6 +199,7 @@ fn extract_params(table: &mlua::Table, fn_name: &str) -> Result<Vec<SqlParam>, m
                     .to_string();
                 SqlParam::Text(rust_string)
             }
+            #[allow(clippy::useless_conversion)]
             mlua::Value::Integer(n) => SqlParam::Int(n.into()),
             mlua::Value::Number(n) => SqlParam::Float(n),
             mlua::Value::Boolean(b) => SqlParam::Bool(b),
@@ -234,6 +235,7 @@ fn value_to_sql_param(
                 .to_string();
             Ok(SqlParam::Text(rust_string))
         }
+        #[allow(clippy::useless_conversion)]
         mlua::Value::Integer(n) => Ok(SqlParam::Int(n.into())),
         mlua::Value::Number(n) => Ok(SqlParam::Float(n)),
         mlua::Value::Boolean(b) => Ok(SqlParam::Bool(b)),

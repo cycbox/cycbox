@@ -397,7 +397,9 @@ impl LuaScript {
                                 mlua::Value::String(s) => {
                                     cycbox_sdk::Value::new_string(&key, s.to_str()?.to_string())
                                 }
-                                mlua::Value::Integer(n) => {
+                                mlua::Value::Integer(n) =>
+                                {
+                                    #[allow(clippy::useless_conversion)]
                                     cycbox_sdk::Value::builder(&key).int64((*n).into())
                                 }
                                 mlua::Value::Number(n) => {
