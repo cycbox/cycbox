@@ -8,10 +8,11 @@ pub mod l10n;
 mod lua;
 mod state;
 mod tasks;
+
 use once_cell::sync::Lazy;
 use tokio::runtime::{Builder, Runtime};
 
-pub use engine::Engine;
+pub use engine::{Engine, LogLevel};
 pub use error::EngineError;
 pub use lua::DEFAULT_LUA_SCRIPT;
 pub use state::EngineState;

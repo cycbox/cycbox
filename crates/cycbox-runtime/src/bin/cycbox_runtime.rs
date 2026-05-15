@@ -1,6 +1,7 @@
 use clap::Parser;
 use cycbox_engine::Engine;
 use cycbox_sdk::MESSAGE_TYPE_LOG;
+use cycbox_sdk::Manifestable;
 use cycbox_sdk::manifest::ManifestValues;
 use std::sync::Arc;
 
@@ -40,7 +41,7 @@ fn main() {
 
     cycbox_engine::RUNTIME.block_on(async {
         // Build the manifest and merge saved values into it
-        let base_manifest = engine.manifest("en").await;
+        let base_manifest = run_mode.manifest("en").await;
         let manifest = values.merge_into_manifest(base_manifest);
 
         // Start the engine with the merged manifest

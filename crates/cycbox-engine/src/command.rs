@@ -26,21 +26,16 @@ pub(crate) enum Command {
         result_sender: oneshot::Sender<Result<EngineState, EngineError>>,
     },
 
-    /// Set and/or reload the Lua script.
-    /// If `lua_script` is Some, updates the stored script first.
-    /// If `reload` is true, reloads (recompiles/reinitializes) the script after any update.
-    SetLuaScript {
+    /// Update Lua script source and/or enabled state, optionally rebuilding the live script.
+    ///
+    /// - If `lua_script` is `Some`, updates the stored manifest script first.
+    /// - If `enabled` is `Some`, updates the `lua_enabled` flag.
+    /// - The active script is rebuilt (`on_stop` → recompile → `on_start`) when either
+    ///   `reload` is true, or `enabled` actually changed and the engine is running.
+    SetLua {
         lua_script: Option<String>,
+        enabled: Option<bool>,
         reload: bool,
-        result_sender: oneshot::Sender<Result<EngineState, EngineError>>,
-    },
-
-    /// Enable or disable the Lua script.
-    /// When disabled, calls `on_stop` (if running) and replaces the active script with an
-    /// empty no-op script so hooks are skipped. When re-enabled while the engine is running,
-    /// rebuilds the script from the stored manifest and calls `on_start`.
-    SetLuaEnabled {
-        enabled: bool,
         result_sender: oneshot::Sender<Result<EngineState, EngineError>>,
     },
 
@@ -65,13 +60,14 @@ pub(crate) enum Command {
         messages: Vec<(Duration, Message)>,
         result_sender: oneshot::Sender<Result<u64, EngineError>>,
     },
-    /// Cancel a single repeating batch by its ID. No-op if the batch has already ended.
+    /// Cancel repeating batches.
+    ///
+    /// If `batch_ids` is empty, cancels every active repeating batch. Otherwise cancels each
+    /// listed batch ID (any ID that has already ended is silently ignored).
     StopRepeatingMessages {
-        batch_id: u64,
+        batch_ids: Vec<u64>,
         result_sender: oneshot::Sender<()>,
     },
-    /// Cancel all active repeating batches at once.
-    StopAllRepeatingMessages { result_sender: oneshot::Sender<()> },
 
     /// Send a command message to a connection and wait for its response.
     ///

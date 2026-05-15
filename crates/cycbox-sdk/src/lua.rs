@@ -8,10 +8,7 @@ pub trait LuaEngine: Send + Sync {
     /// Queue a message to be sent via connections (fire-and-forget)
     async fn send_message(&self, message: Message);
 
-    fn debug(&self, message: &str);
-    fn info(&self, message: &str);
-    fn warn(&self, message: &str);
-    fn error(&self, message: &str);
+    fn log(&self, level: &str, message: &str);
 }
 
 /// Trait for registering Lua functions into a Lua state.

@@ -266,38 +266,49 @@ pub(crate) fn start_engine_task(
                             }
                         }
                         Command::StopRepeatingMessages {
-                            batch_id,
+                            batch_ids,
                             result_sender,
                         } => {
-                            if let Some(handle) = repeating_handlers.remove(&batch_id) {
-                                handle.abort();
+                            if batch_ids.is_empty() {
+                                repeating_ctx.cancel();
+                                repeating_ctx = cancellation_token.child_token();
+                                repeating_handlers.values().for_each(|h| h.abort());
+                                repeating_handlers.clear();
+                            } else {
+                                for batch_id in batch_ids {
+                                    if let Some(handle) = repeating_handlers.remove(&batch_id) {
+                                        handle.abort();
+                                    }
+                                }
                             }
                             let _ = result_sender.send(());
                         }
-                        Command::StopAllRepeatingMessages { result_sender } => {
-                            repeating_ctx.cancel();
-                            repeating_ctx = cancellation_token.child_token();
-                            repeating_handlers.values().for_each(|h| h.abort());
-                            repeating_handlers.clear();
-                            let _ = result_sender.send(());
-                        }
-                        Command::SetLuaScript {
+                        Command::SetLua {
                             lua_script: new_script_code,
+                            enabled,
                             reload,
                             result_sender,
                         } => {
-                            // Update manifest if new code was provided
                             if let Some(new_code) = new_script_code {
                                 state.manifest.lua_script = Some(new_code);
                             }
 
-                            if reload {
-                                // Stop existing script
+                            let enabled_changed = match enabled {
+                                Some(new_enabled) if state.lua_enabled != new_enabled => {
+                                    state.lua_enabled = new_enabled;
+                                    true
+                                }
+                                _ => false,
+                            };
+
+                            // Rebuild when caller asked for reload, or when enabled actually
+                            // changed while the engine is running (so the change takes effect).
+                            let should_rebuild = reload || (enabled_changed && state.running);
+                            if should_rebuild {
                                 if let Err(e) = lua_script.on_stop().await {
-                                    engine.error(&format!("Lua on_stop error during reload: {e}"));
+                                    engine.error(&format!("Lua on_stop error during set_lua: {e}"));
                                 }
 
-                                // Reload with current manifest script (or empty if disabled)
                                 let lua_code = if state.lua_enabled {
                                     state.manifest.lua_script.as_deref().unwrap_or("")
                                 } else {
@@ -309,78 +320,33 @@ pub(crate) fn start_engine_task(
                                     .iter()
                                     .map(|c| c.as_slice())
                                     .collect();
-                                match LuaScript::new(lua_code, &configs_refs, engine.clone(), lua_helper_registry, connection_command_senders.clone()) {
+                                match LuaScript::new(
+                                    lua_code,
+                                    &configs_refs,
+                                    engine.clone(),
+                                    lua_helper_registry,
+                                    connection_command_senders.clone(),
+                                ) {
                                     Ok(mut script) => {
                                         if let Err(e) = script.on_start().await {
-                                            engine.error(&format!("Lua on_start error after reload: {e}"));
+                                            engine.error(&format!(
+                                                "Lua on_start error after set_lua: {e}"
+                                            ));
                                         }
                                         lua_script = script;
                                         let _ = result_sender.send(Ok(state.clone()));
                                     }
                                     Err(e) => {
-                                        engine.error(&format!("Failed to reload Lua script: {e}"));
-                                        let _ = result_sender.send(Err(EngineError::Engine(format!(
-                                            "Failed to reload Lua script: {e}"
-                                        ))));
-                                    }
-                                }
-                            } else {
-                                let _ = result_sender.send(Ok(state.clone()));
-                            }
-                        }
-                        Command::SetLuaEnabled { enabled, result_sender } => {
-                            if state.lua_enabled == enabled {
-                                let _ = result_sender.send(Ok(state.clone()));
-                            } else {
-                                state.lua_enabled = enabled;
-
-                                if state.running {
-                                    // Tear down the current script
-                                    if let Err(e) = lua_script.on_stop().await {
                                         engine.error(&format!(
-                                            "Lua on_stop error during set_lua_enabled: {e}"
+                                            "Failed to rebuild Lua script: {e}"
                                         ));
+                                        let _ = result_sender.send(Err(EngineError::Engine(
+                                            format!("Failed to rebuild Lua script: {e}"),
+                                        )));
                                     }
-
-                                    let lua_code = if enabled {
-                                        state.manifest.lua_script.as_deref().unwrap_or("")
-                                    } else {
-                                        ""
-                                    };
-                                    let configs_refs: Vec<&[FormGroup]> = state
-                                        .manifest
-                                        .configs
-                                        .iter()
-                                        .map(|c| c.as_slice())
-                                        .collect();
-                                    match LuaScript::new(
-                                        lua_code,
-                                        &configs_refs,
-                                        engine.clone(),
-                                        lua_helper_registry,
-                                        connection_command_senders.clone(),
-                                    ) {
-                                        Ok(mut script) => {
-                                            if let Err(e) = script.on_start().await {
-                                                engine.error(&format!(
-                                                    "Lua on_start error after set_lua_enabled: {e}"
-                                                ));
-                                            }
-                                            lua_script = script;
-                                            let _ = result_sender.send(Ok(state.clone()));
-                                        }
-                                        Err(e) => {
-                                            engine.error(&format!(
-                                                "Failed to rebuild Lua script: {e}"
-                                            ));
-                                            let _ = result_sender.send(Err(EngineError::Engine(
-                                                format!("Failed to rebuild Lua script: {e}"),
-                                            )));
-                                        }
-                                    }
-                                } else {
-                                    let _ = result_sender.send(Ok(state.clone()));
                                 }
+                            } else {
+                                let _ = result_sender.send(Ok(state.clone()));
                             }
                         }
                         Command::Command { command, result_sender } => {
