@@ -3,7 +3,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use bytes::BytesMut;
-use log::{debug, warn};
+use log::{debug, info, warn};
 use std::collections::VecDeque;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -43,6 +43,22 @@ pub trait TransportIO: AsyncRead + AsyncWrite + Send + Unpin {
     /// Handle a command request and optionally return a response
     async fn handle_command(&mut self, _command: &Message) -> Option<Message> {
         None
+    }
+
+    /// Returns `true` (and clears its internal flag) when the underlying
+    /// transport has just transitioned to a new logical session — for example,
+    /// a server-style transport that switched from one accepted client to the
+    /// next without surfacing EOF to the upper layer.
+    ///
+    /// When this returns `true`, `CodecTransport` flushes any in-flight decode
+    /// state (calls `Codec::decode_eof` to drain a possible final frame, then
+    /// `Codec::reset` and clears the decode buffer) before processing any
+    /// further bytes. This guarantees stateful codecs (Modbus framing, AT
+    /// parsing, …) do not carry one session's parser state into the next.
+    ///
+    /// Default returns `false` for transports without session boundaries
+    fn take_session_boundary(&mut self) -> bool {
+        false
     }
 }
 
@@ -159,6 +175,24 @@ impl MessageTransport for CodecTransport {
                         let _ = observer.rx.try_send(raw);
                     }
 
+                    // If the underlying transport rotated to a new logical
+                    // session, drain any final frame from the previous
+                    // session and reset codec state before consuming new bytes.
+                    if self.transport.take_session_boundary() {
+                        debug!(
+                            "CodecTransport: session boundary observed (prev buffer: {} bytes)",
+                            self.buffer.len()
+                        );
+                        if !self.buffer.is_empty()
+                            && let Ok(Some(msg)) =
+                                Codec::decode_eof(&mut *self.codec, &mut self.buffer)
+                        {
+                            self.pending_messages.push_back(msg);
+                        }
+                        self.codec.reset();
+                        self.buffer.clear();
+                    }
+
                     // Data received
                     if self.buffer.len() + n > MAX_BUFFER_SIZE {
                         warn!(
@@ -193,6 +227,24 @@ impl MessageTransport for CodecTransport {
                 }
                 Ok(Err(e)) => return Err(CycBoxError::Connection(e.to_string())),
                 Err(_) => {
+                    // Honour a session boundary observed during the idle
+                    // window: drain final frame, then reset codec/buffer.
+                    if self.transport.take_session_boundary() {
+                        info!(
+                            "CodecTransport: session boundary on timeout (prev buffer: {} bytes)",
+                            self.buffer.len()
+                        );
+                        if !self.buffer.is_empty()
+                            && let Ok(Some(msg)) =
+                                Codec::decode_eof(&mut *self.codec, &mut self.buffer)
+                        {
+                            self.codec.reset();
+                            self.buffer.clear();
+                            return Ok(Some(msg));
+                        }
+                        self.codec.reset();
+                        self.buffer.clear();
+                    }
                     // Timeout - try decode_timeout if buffer is not empty
                     if !self.buffer.is_empty()
                         && let Ok(Some(msg)) = self.codec.decode_timeout(&mut self.buffer)
