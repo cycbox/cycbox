@@ -264,10 +264,17 @@ impl MessageTransport for CodecTransport {
             message.frame = message.payload.clone();
         }
         if !message.frame.is_empty() {
-            self.transport
-                .write_all(&message.frame)
-                .await
-                .map_err(|e| CycBoxError::Connection(e.to_string()))?;
+            self.transport.write_all(&message.frame).await.map_err(|e| {
+                // `NotConnected` is the agreed signal from server-style
+                // transports (e.g. p2p server with no active client) that the
+                // bytes should be discarded but the transport stays alive. All
+                // other IO errors still mean "real connection failure" and
+                // trigger the connection task's reconnect path.
+                match e.kind() {
+                    std::io::ErrorKind::NotConnected => CycBoxError::Discarded(e.to_string()),
+                    _ => CycBoxError::Connection(e.to_string()),
+                }
+            })?;
         }
         Ok(())
     }

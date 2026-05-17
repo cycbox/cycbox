@@ -15,6 +15,13 @@ pub enum CycBoxError {
     #[error("Connection failed: {0}")]
     Connection(String),
 
+    /// Message was not delivered, but the transport is still healthy and the
+    /// connection task should NOT reconnect. Typical case: a server-style
+    /// transport that currently has no peer attached. The connection task
+    /// logs the discard at warn level and drops the message.
+    #[error("Discarded: {0}")]
+    Discarded(String),
+
     #[error("Parse error: {0}")]
     Parse(String),
 

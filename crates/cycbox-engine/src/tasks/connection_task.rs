@@ -195,6 +195,11 @@ pub(crate) fn start_connection(
                                         &mut outbox_warned,
                                     );
                                 }
+                                Err(CycBoxError::Discarded(reason)) => {
+                                    // Transport accepted-but-dropped (e.g. server with
+                                    // no client). Stay connected, just log it.
+                                    engine.warn(&format!("Connection {connection_id} send discarded: {reason}"));
+                                }
                                 Err(e) => {
                                     if matches!(e, CycBoxError::Connection(_)) {
                                         engine.warn(&format!("Connection {connection_id} send error: {e}, reconnecting..."));
@@ -309,6 +314,14 @@ async fn drain_outbox(
         }
         Err(CycBoxError::Pending(_)) => {
             outbox.push_front(msg);
+            DrainOutcome::Idle
+        }
+        Err(CycBoxError::Discarded(reason)) => {
+            // Drop the message — re-queueing it would just spin until a peer
+            // appears, and by then the request/response correlation is stale.
+            engine.warn(&format!(
+                "Connection {connection_id} retry send discarded: {reason}"
+            ));
             DrainOutcome::Idle
         }
         Err(e) => {
