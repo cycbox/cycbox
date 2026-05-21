@@ -1,4 +1,4 @@
-use crate::command::Command;
+use crate::command::{ControlCommand, MessageCommand};
 use crate::error::EngineError;
 use crate::state::EngineState;
 use crate::tasks::start_engine_task;
@@ -12,6 +12,14 @@ use cycbox_sdk::{
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, oneshot};
+
+/// Capacity for the control-plane channel. Small on purpose: control traffic is UI-driven and
+/// low rate, and a small bound surfaces back-pressure quickly if something goes wrong.
+const CONTROL_CHANNEL_CAPACITY: usize = 64;
+/// Capacity for the data-plane channel. Sized to absorb RX/TX bursts without dropping work.
+const MESSAGE_CHANNEL_CAPACITY: usize = 10_000;
+/// Capacity for the broadcast channel that fans messages out to subscribers.
+const BROADCAST_CHANNEL_CAPACITY: usize = 10_000;
 
 #[derive(Debug, Clone, Copy)]
 pub enum LogLevel {
@@ -43,9 +51,17 @@ impl LogLevel {
 
 /// Public API handle for the engine, implemented with the actor pattern.
 ///
-/// `Engine` is cheaply cloneable — all clones share the same underlying mpsc sender
-/// and broadcast channel. Every async method that needs a response sends a `Command`
-/// with an embedded `oneshot::Sender` and awaits the reply from the engine task.
+/// `Engine` is cheaply cloneable — all clones share the same underlying channels.
+/// Two mpsc lanes feed the engine task:
+///
+/// - `control_sender` carries low-frequency, UI-driven commands (`Start`, `Stop`, `GetState`,
+///   `SetLua`, `Command`, repeating-batch lifecycle, …). Drained with priority so that control
+///   responsiveness is not affected by data-plane backlog.
+/// - `message_sender` carries high-frequency per-packet traffic (`SendMessages`, `SendConfirm`,
+///   `ReceiveMessage`). Sized for bursts.
+///
+/// Both lanes are still serialized through the same engine task, preserving single-mutator
+/// ownership of `LuaScript` and other engine state.
 ///
 /// # Blocking vs non-blocking
 /// Methods that await a `oneshot` reply (`get_state`, `start`, `stop`, `command`, …)
@@ -54,22 +70,30 @@ impl LogLevel {
 /// code that runs inside the engine task (connection tasks, Lua hooks, etc.).
 #[derive(Clone)]
 pub struct Engine {
-    sender: mpsc::Sender<Command>,
+    control_sender: mpsc::Sender<ControlCommand>,
+    message_sender: mpsc::Sender<MessageCommand>,
     message_broadcast: broadcast::Sender<Message>,
     is_debug: bool,
 }
 impl Engine {
     pub fn new(run_mode: Arc<dyn RunMode>, is_debug: bool) -> Self {
-        let (sender, receiver) = mpsc::channel(10000);
-        let (message_broadcast, _) = broadcast::channel(10000);
+        let (control_sender, control_receiver) = mpsc::channel(CONTROL_CHANNEL_CAPACITY);
+        let (message_sender, message_receiver) = mpsc::channel(MESSAGE_CHANNEL_CAPACITY);
+        let (message_broadcast, _) = broadcast::channel(BROADCAST_CHANNEL_CAPACITY);
 
         let engine = Engine {
-            sender,
+            control_sender,
+            message_sender,
             message_broadcast,
             is_debug,
         };
-        // engine task should exit when sender is dropped
-        start_engine_task(EngineRef(engine.clone()), run_mode, receiver);
+        // engine task should exit when both senders are dropped
+        start_engine_task(
+            EngineRef(engine.clone()),
+            run_mode,
+            control_receiver,
+            message_receiver,
+        );
         engine
     }
 
@@ -81,8 +105,8 @@ impl Engine {
     /// Fetch a snapshot of the current engine state (manifest, running flag, connection count).
     pub async fn get_state(&self) -> Result<EngineState, EngineError> {
         let (result_sender, result_receiver) = oneshot::channel();
-        self.sender
-            .send(Command::GetState { result_sender })
+        self.control_sender
+            .send(ControlCommand::GetState { result_sender })
             .await?;
         let result = result_receiver.await?;
         Ok(result)
@@ -95,8 +119,8 @@ impl Engine {
         manifest: Manifest,
     ) -> Result<(), EngineError> {
         let (result_sender, result_receiver) = oneshot::channel();
-        self.sender
-            .send(Command::SetManifest {
+        self.control_sender
+            .send(ControlCommand::SetManifest {
                 manifest,
                 result_sender,
             })
@@ -122,8 +146,8 @@ impl Engine {
         reload: bool,
     ) -> Result<(), EngineError> {
         let (result_sender, result_receiver) = oneshot::channel();
-        self.sender
-            .send(Command::SetLua {
+        self.control_sender
+            .send(ControlCommand::SetLua {
                 lua_script,
                 enabled,
                 reload,
@@ -148,8 +172,8 @@ impl Engine {
         manifest: Option<Manifest>,
     ) -> Result<(), EngineError> {
         let (result_sender, result_receiver) = oneshot::channel();
-        self.sender
-            .send(Command::Start {
+        self.control_sender
+            .send(ControlCommand::Start {
                 manifest,
                 result_sender,
             })
@@ -165,7 +189,9 @@ impl Engine {
     /// Calls the Lua `on_stop` hook before tearing down connections.
     pub async fn stop(&self, module: impl Into<String>) -> Result<(), EngineError> {
         let (result_sender, result_receiver) = oneshot::channel();
-        self.sender.send(Command::Stop { result_sender }).await?;
+        self.control_sender
+            .send(ControlCommand::Stop { result_sender })
+            .await?;
         let result = result_receiver.await?;
         let state = result?;
         let message = with_module_action(state.into(), module, "stop").build();
@@ -203,7 +229,7 @@ impl Engine {
 
     /// Queue messages to be sent via connections.
     ///
-    /// Fire-and-forget: queues a `Command::SendMessages` and returns immediately.
+    /// Fire-and-forget: queues a `MessageCommand::SendMessages` and returns immediately.
     /// The engine task runs the `on_send` Lua hook, then routes each message either
     /// to the delay queue (if `timestamp > now + 500µs`) or directly to the connection sender.
     pub async fn send_messages(&self, messages: Vec<Message>) {
@@ -216,7 +242,11 @@ impl Engine {
                 );
             }
         }
-        if let Err(e) = self.sender.send(Command::SendMessages { messages }).await {
+        if let Err(e) = self
+            .message_sender
+            .send(MessageCommand::SendMessages { messages })
+            .await
+        {
             log::error!("Failed to send messages: {}", e);
         }
     }
@@ -231,8 +261,8 @@ impl Engine {
         messages_with_delays: Vec<(Duration, Message)>,
     ) -> Result<u64, EngineError> {
         let (result_sender, result_receiver) = oneshot::channel();
-        self.sender
-            .send(Command::SendRepeatingMessages {
+        self.control_sender
+            .send(ControlCommand::SendRepeatingMessages {
                 messages: messages_with_delays,
                 result_sender,
             })
@@ -246,8 +276,8 @@ impl Engine {
     /// listed batch ID (any ID that has already ended is silently ignored).
     pub async fn stop_repeating_messages(&self, batch_ids: Vec<u64>) -> Result<(), EngineError> {
         let (result_sender, result_receiver) = oneshot::channel();
-        self.sender
-            .send(Command::StopRepeatingMessages {
+        self.control_sender
+            .send(ControlCommand::StopRepeatingMessages {
                 batch_ids,
                 result_sender,
             })
@@ -262,8 +292,8 @@ impl Engine {
     /// return the last non-empty response. Returns an error if no connection responds.
     pub async fn command(&self, command: Message) -> Result<Message, EngineError> {
         let (result_sender, result_receiver) = oneshot::channel();
-        self.sender
-            .send(Command::Command {
+        self.control_sender
+            .send(ControlCommand::Command {
                 command,
                 result_sender,
             })
@@ -282,14 +312,18 @@ impl Engine {
     /// Fire-and-forget: the engine task runs the `on_send_confirm` Lua hook and broadcasts
     /// the confirmation message. Does not wait for a reply.
     pub(crate) async fn send_confirm(&self, message: Message) {
-        if let Err(e) = self.sender.send(Command::SendConfirm(message)).await {
+        if let Err(e) = self
+            .message_sender
+            .send(MessageCommand::SendConfirm(message))
+            .await
+        {
             log::error!("Failed to send confirm message: {}", e);
         }
     }
 
     /// Hand an inbound message to the engine task for Lua hook processing and broadcast.
     ///
-    /// Fire-and-forget: queues a `Command::ReceiveMessage` and returns immediately.
+    /// Fire-and-forget: queues a `MessageCommand::ReceiveMessage` and returns immediately.
     /// The engine task runs the `on_receive` Lua hook and then calls [`broadcast`].
     pub(crate) async fn receive_message(&self, message: Message) {
         // log error if message has UNKNOW_CONNECTION_ID
@@ -297,7 +331,11 @@ impl Engine {
             log::error!("Received message with UNKNOW_CONNECTION_ID: {:?}", message);
         }
 
-        if let Err(e) = self.sender.send(Command::ReceiveMessage(message)).await {
+        if let Err(e) = self
+            .message_sender
+            .send(MessageCommand::ReceiveMessage(message))
+            .await
+        {
             log::error!("Failed to send receive message: {}", e);
         }
     }
@@ -321,7 +359,7 @@ fn with_module_action(
 /// they would deadlock because the engine task is blocked waiting for its own reply.
 ///
 /// `EngineRef` exposes only the subset of operations that are safe to call from within:
-/// - **Fire-and-forget** async methods that push to the mpsc channel without waiting for a reply.
+/// - **Fire-and-forget** async methods that push to the data-plane channel without waiting for a reply.
 /// - **Direct** broadcast/subscribe operations (bypass the engine task entirely).
 /// - **Synchronous** log helpers.
 #[derive(Clone)]

@@ -289,7 +289,6 @@ mod fallback_timer {
         }
 
         pub async fn wait(&mut self) -> std::io::Result<()> {
-            // Fallback does nothing; we'll use tokio::time::sleep instead
             Ok(())
         }
 
@@ -394,27 +393,28 @@ impl HighResDelay {
             // No delay needed for zero or negative durations
             return Ok(());
         }
-        if duration <= HIGH_RES_THRESHOLD {
-            if let Some(ref mut timer) = self.timer {
-                // Set the timer
-                if let Err(e) = timer.set_timer(duration) {
-                    debug!(
-                        "HighResDelay: Failed to set timer: {}, falling back to tokio sleep",
-                        e
-                    );
-                    tokio::time::sleep(duration).await;
-                } else {
-                    // Wait for timer
-                    if let Err(e) = timer.wait().await {
-                        debug!("HighResDelay: Timer wait error: {}", e);
-                    }
+        if duration <= HIGH_RES_THRESHOLD
+            && let Some(ref mut timer) = self.timer
+        {
+            // Set the timer
+            if let Err(e) = timer.set_timer(duration) {
+                debug!(
+                    "HighResDelay: Failed to set timer: {}, falling back to tokio sleep",
+                    e
+                );
+                tokio::time::sleep(duration).await;
+            } else {
+                // Wait for timer
+                if let Err(e) = timer.wait().await {
+                    debug!("HighResDelay: Timer wait error: {}", e);
                 }
-                return Ok(());
             }
-        } else {
-            tokio::time::sleep(duration).await;
+            return Ok(());
         }
 
+        // Either the duration exceeds the high-res threshold, or no high-res
+        // timer is available on this platform (or its creation failed).
+        tokio::time::sleep(duration).await;
         Ok(())
     }
 

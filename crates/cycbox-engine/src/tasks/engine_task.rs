@@ -1,5 +1,5 @@
 use crate::EngineError;
-use crate::command::Command;
+use crate::command::{ControlCommand, MessageCommand};
 use crate::engine::EngineRef;
 use crate::lua::{DEFAULT_LUA_SCRIPT, LuaScript};
 use crate::state::EngineState;
@@ -19,15 +19,21 @@ use tokio_util::sync::CancellationToken;
 /// Spawn the engine task and return its `JoinHandle`.
 ///
 /// The engine task is the central command loop. It owns all mutable engine state and
-/// processes `Command` messages from the mpsc channel one at a time, eliminating the need
-/// for locks on shared state. It also drives the 100 ms Lua timer tick.
+/// processes commands one at a time, eliminating the need for locks on shared state. It also
+/// drives the 100 ms Lua timer tick.
 ///
-/// The task exits when the mpsc `receiver` is closed (i.e. all `Engine` handles are dropped),
+/// Two mpsc lanes feed the task: `control_receiver` for UI-driven control commands and
+/// `message_receiver` for high-frequency data-plane traffic. The select is `biased` so that
+/// the timer and control lane are polled ahead of the message lane — a heavy data-plane
+/// backlog cannot starve `Stop`, `GetState`, etc.
+///
+/// The task exits when **both** receivers are closed (i.e. all `Engine` handles are dropped),
 /// at which point it cancels all child tasks and waits briefly for them to finish.
 pub(crate) fn start_engine_task(
     engine: EngineRef,
     run_mode: Arc<dyn RunMode>,
-    mut receiver: mpsc::Receiver<Command>,
+    mut control_receiver: mpsc::Receiver<ControlCommand>,
+    mut message_receiver: mpsc::Receiver<MessageCommand>,
 ) -> JoinHandle<()> {
     crate::RUNTIME.spawn(async move {
         // Root token — cancelling it shuts down every child task at once when the engine exits.
@@ -78,23 +84,33 @@ pub(crate) fn start_engine_task(
 
         loop {
             tokio::select! {
-                request = receiver.recv() => {
+                biased;
+                _ = timer_interval.tick() => {
+                    let timestamp_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as u64;
+                    if let Err(e) = lua_script.on_timer(timestamp_ms).await {
+                        engine.warn(&format!("Lua on_timer error: {e}"));
+                    }
+                }
+                request = control_receiver.recv() => {
                     let request = match request {
                         Some(r) => r,
-                        None => break, // sender dropped, exit loop
+                        None => break, // control sender dropped, exit loop
                     };
                     match request {
-                        Command::GetState { result_sender } => {
+                        ControlCommand::GetState { result_sender } => {
                             let _ = result_sender.send(state.clone());
                         }
-                        Command::SetManifest {
+                        ControlCommand::SetManifest {
                             manifest,
                             result_sender,
                         } => {
                             state.manifest = manifest;
                             let _ = result_sender.send(state.clone());
                         }
-                        Command::Start {
+                        ControlCommand::Start {
                             manifest,
                             result_sender,
                         } => {
@@ -158,7 +174,7 @@ pub(crate) fn start_engine_task(
                                 let _ = result_sender.send(Ok(state.clone()));
                             }
                         }
-                        Command::Stop { result_sender } => {
+                        ControlCommand::Stop { result_sender } => {
                             if let Err(e) = lua_script.on_stop().await {
                                 engine.error(&format!("Lua on_stop error: {e}"));
                             }
@@ -184,68 +200,7 @@ pub(crate) fn start_engine_task(
                             state.connection_count = 0;
                             let _ = result_sender.send(Ok(state.clone()));
                         }
-                        Command::ReceiveMessage(mut message) => {
-                            if let Err(e) = lua_script.on_receive(&mut message).await {
-                                engine.error(&format!("Lua on_receive error: {e}"));
-                            }
-
-                            // Check for auto-response (e.g. Modbus server codec)
-                            let auto_response = if let Some(response_value) = message
-                                .metadata_value("auto_response")
-                            {
-                                let response_frame =response_value.as_bytes();
-                                let conn_id = message.connection_id;
-                                message.remove_metadata("auto_response");
-                                Some((response_frame, conn_id))
-                            } else {
-                                None
-                            };
-
-                            engine.broadcast(message);
-
-                            // Send auto-response
-                            if let Some((response_frame, conn_id)) = auto_response {
-                                let tx_msg = MessageBuilder::tx(
-                                    conn_id,
-                                    PayloadType::Binary,
-                                    response_frame.clone(),
-                                    response_frame,
-                                )
-                                .build();
-                                engine.send_message(tx_msg).await;
-                            }
-                        }
-                        Command::SendConfirm(mut message) => {
-                            if let Err(e) = lua_script.on_send_confirm(&mut message).await {
-                                engine.error(&format!("Lua on_send_confirm error: {e}"));
-                            }
-                            engine.broadcast(message);
-                        }
-                        Command::SendMessages { messages } => {
-                            if !state.running {
-                                engine.warn("Cannot send messages: engine is not running");
-                            } else {
-                                let current_time = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_micros() as u64;
-                                for mut message in messages {
-                                    if let Err(e) = lua_script.on_send(&mut message).await {
-                                        engine.error(&format!("Lua on_send error: {e}"));
-                                    }
-                                    // Messages scheduled more than 500 µs in the future go to the
-                                    // delay queue; anything within that window is treated as immediate.
-                                    if message.timestamp > (current_time + 500) {
-                                        let _ = delay_sender.send(message).await;
-                                    } else if let Some(sender) =
-                                        connection_senders.get(message.connection_id as usize)
-                                    {
-                                        let _ = sender.send(message).await;
-                                    }
-                                }
-                            }
-                        }
-                        Command::SendRepeatingMessages {
+                        ControlCommand::SendRepeatingMessages {
                             messages,
                             result_sender,
                         } => {
@@ -265,7 +220,7 @@ pub(crate) fn start_engine_task(
                                 let _ = result_sender.send(Ok(new_batch_id));
                             }
                         }
-                        Command::StopRepeatingMessages {
+                        ControlCommand::StopRepeatingMessages {
                             batch_ids,
                             result_sender,
                         } => {
@@ -283,7 +238,7 @@ pub(crate) fn start_engine_task(
                             }
                             let _ = result_sender.send(());
                         }
-                        Command::SetLua {
+                        ControlCommand::SetLua {
                             lua_script: new_script_code,
                             enabled,
                             reload,
@@ -349,7 +304,7 @@ pub(crate) fn start_engine_task(
                                 let _ = result_sender.send(Ok(state.clone()));
                             }
                         }
-                        Command::Command { command, result_sender } => {
+                        ControlCommand::Command { command, result_sender } => {
                             if command.connection_id == SYSTEM_CONNECTION_ID {
                                 // Broadcast to all connections, keep the last non-empty response
                                 let mut last_response: Option<Message> = None;
@@ -391,13 +346,73 @@ pub(crate) fn start_engine_task(
                         }
                     }
                 }
-                _ = timer_interval.tick() => {
-                    let timestamp_ms = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u64;
-                    if let Err(e) = lua_script.on_timer(timestamp_ms).await {
-                        engine.warn(&format!("Lua on_timer error: {e}"));
+                request = message_receiver.recv() => {
+                    let request = match request {
+                        Some(r) => r,
+                        None => break, // message sender dropped, exit loop
+                    };
+                    match request {
+                        MessageCommand::ReceiveMessage(mut message) => {
+                            if let Err(e) = lua_script.on_receive(&mut message).await {
+                                engine.error(&format!("Lua on_receive error: {e}"));
+                            }
+
+                            // Check for auto-response (e.g. Modbus server codec)
+                            let auto_response = if let Some(response_value) = message
+                                .metadata_value("auto_response")
+                            {
+                                let response_frame =response_value.as_bytes();
+                                let conn_id = message.connection_id;
+                                message.remove_metadata("auto_response");
+                                Some((response_frame, conn_id))
+                            } else {
+                                None
+                            };
+
+                            engine.broadcast(message);
+
+                            // Send auto-response
+                            if let Some((response_frame, conn_id)) = auto_response {
+                                let tx_msg = MessageBuilder::tx(
+                                    conn_id,
+                                    PayloadType::Binary,
+                                    response_frame.clone(),
+                                    response_frame,
+                                )
+                                .build();
+                                engine.send_message(tx_msg).await;
+                            }
+                        }
+                        MessageCommand::SendConfirm(mut message) => {
+                            if let Err(e) = lua_script.on_send_confirm(&mut message).await {
+                                engine.error(&format!("Lua on_send_confirm error: {e}"));
+                            }
+                            engine.broadcast(message);
+                        }
+                        MessageCommand::SendMessages { messages } => {
+                            if !state.running {
+                                engine.warn("Cannot send messages: engine is not running");
+                            } else {
+                                let current_time = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_micros() as u64;
+                                for mut message in messages {
+                                    if let Err(e) = lua_script.on_send(&mut message).await {
+                                        engine.error(&format!("Lua on_send error: {e}"));
+                                    }
+                                    // Messages scheduled more than 500 µs in the future go to the
+                                    // delay queue; anything within that window is treated as immediate.
+                                    if message.timestamp > (current_time + 500) {
+                                        let _ = delay_sender.send(message).await;
+                                    } else if let Some(sender) =
+                                        connection_senders.get(message.connection_id as usize)
+                                    {
+                                        let _ = sender.send(message).await;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -4,7 +4,10 @@ use cycbox_sdk::prelude::*;
 use std::time::Duration;
 use tokio::sync::oneshot;
 
-pub(crate) enum Command {
+/// Low-frequency, UI-driven commands. Each variant carries a `oneshot` reply sender
+/// (except where no reply is needed). Handled on the priority lane of the engine
+/// task so control responsiveness is not affected by data-plane backlog.
+pub(crate) enum ControlCommand {
     GetState {
         result_sender: oneshot::Sender<EngineState>,
     },
@@ -39,18 +42,6 @@ pub(crate) enum Command {
         result_sender: oneshot::Sender<Result<EngineState, EngineError>>,
     },
 
-    /// Hand an inbound message to the engine task for Lua `on_receive` hook processing and broadcast.
-    ReceiveMessage(Message),
-    /// Notify the engine that a message was successfully transmitted so the Lua `on_send_confirm`
-    /// hook can run and the confirmation can be broadcast to subscribers.
-    SendConfirm(Message),
-
-    /// Send one or more messages, routed by `connection_id`.
-    ///
-    /// Messages whose `timestamp` is more than 500 µs in the future are queued in the delay
-    /// queue; otherwise they are dispatched immediately to the matching connection sender.
-    SendMessages { messages: Vec<Message> },
-
     /// Start a repeating message batch.
     ///
     /// Each `(Duration, Message)` pair is sent to the matching connection in sequence, waiting
@@ -73,9 +64,23 @@ pub(crate) enum Command {
     ///
     /// Use `connection_id = SYSTEM_CONNECTION_ID` to broadcast to all connections and collect
     /// the last non-empty response. Returns an error if no connection responds.
-    #[allow(clippy::enum_variant_names)]
     Command {
         command: Message,
         result_sender: oneshot::Sender<Result<Message, EngineError>>,
     },
+}
+
+/// High-frequency, per-packet data-plane traffic. Handled on the secondary lane of the
+/// engine task; a heavy backlog here cannot starve control commands.
+pub(crate) enum MessageCommand {
+    /// Hand an inbound message to the engine task for Lua `on_receive` hook processing and broadcast.
+    ReceiveMessage(Message),
+    /// Notify the engine that a message was successfully transmitted so the Lua `on_send_confirm`
+    /// hook can run and the confirmation can be broadcast to subscribers.
+    SendConfirm(Message),
+    /// Send one or more messages, routed by `connection_id`.
+    ///
+    /// Messages whose `timestamp` is more than 500 µs in the future are queued in the delay
+    /// queue; otherwise they are dispatched immediately to the matching connection sender.
+    SendMessages { messages: Vec<Message> },
 }
