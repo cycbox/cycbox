@@ -122,9 +122,8 @@ pub(crate) fn start_connection(
                 None
             };
 
-            // Connection established — reset backoff
+            // Connection established — reset backoff.
             backoff = Duration::from_secs(1);
-            reconnecting = false;
 
             let mut connection = Connection::new(connection_id, transport, transformer, encoding);
 
@@ -174,6 +173,7 @@ pub(crate) fn start_connection(
                             Err(e) => {
                                 if matches!(e, CycBoxError::Connection(_)) {
                                     engine.warn(&format!("Connection {connection_id} recv error: {e}, reconnecting..."));
+                                    reconnecting = true;
                                     break;
                                 } else {
                                     engine.error(&format!("Connection {connection_id} recv error: {e}"));

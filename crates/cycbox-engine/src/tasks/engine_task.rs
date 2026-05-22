@@ -13,7 +13,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
-use tokio::time::interval;
+use tokio::time::{MissedTickBehavior, interval};
 use tokio_util::sync::CancellationToken;
 
 /// Spawn the engine task and return its `JoinHandle`.
@@ -79,8 +79,10 @@ pub(crate) fn start_engine_task(
         let lua_helper_registry = run_mode.lua_helper_registry();
         let mut lua_script = LuaScript::new("", &[], engine.clone(), lua_helper_registry, vec![])
             .expect("Failed to create empty Lua script");
-        // 100 ms periodic tick drives LuaScript::on_timer.
+        // 100 ms periodic tick drives LuaScript::on_timer. Use `Delay` so a stall
+        // (e.g. slow Lua hook) doesn't cause a burst of catch-up ticks afterwards.
         let mut timer_interval = interval(Duration::from_millis(100));
+        timer_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
         loop {
             tokio::select! {
@@ -306,11 +308,18 @@ pub(crate) fn start_engine_task(
                         }
                         ControlCommand::Command { command, result_sender } => {
                             if command.connection_id == SYSTEM_CONNECTION_ID {
-                                // Broadcast to all connections, keep the last non-empty response
-                                let mut last_response: Option<Message> = None;
+                                // Broadcast to all connections, keep the last non-empty response.
+                                // Dispatch every command first so the connection tasks process them
+                                // concurrently, then collect the responses — instead of awaiting
+                                // each connection serially, which would sum the per-connection latency.
+                                let mut response_receivers = Vec::with_capacity(connection_command_senders.len());
                                 for sender in &connection_command_senders {
                                     let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
                                     let _ = sender.send((command.clone(), resp_tx)).await;
+                                    response_receivers.push(resp_rx);
+                                }
+                                let mut last_response: Option<Message> = None;
+                                for resp_rx in response_receivers {
                                     if let Ok(Some(resp)) = resp_rx.await {
                                         last_response = Some(resp);
                                     }
