@@ -9,16 +9,25 @@ fn sample_config() -> Vec<cycbox_sdk::FormGroup> {
         make_form_group(
             "net",
             vec![
-                make_form_field_with_value("host", FieldType::TextInput, FormValue::Text("localhost".into())),
-                make_form_field_with_value("port", FieldType::IntegerInput, FormValue::Integer(8080)),
-                make_form_field_with_value("tls", FieldType::BooleanInput, FormValue::Boolean(true)),
+                make_form_field_with_value(
+                    "host",
+                    FieldType::TextInput,
+                    FormValue::Text("localhost".into()),
+                ),
+                make_form_field_with_value(
+                    "port",
+                    FieldType::IntegerInput,
+                    FormValue::Integer(8080),
+                ),
+                make_form_field_with_value(
+                    "tls",
+                    FieldType::BooleanInput,
+                    FormValue::Boolean(true),
+                ),
                 make_form_field_with_value("rate", FieldType::FloatInput, FormValue::Float(1.5)),
             ],
         ),
-        make_form_group(
-            "app",
-            vec![make_form_field("name", FieldType::TextInput)],
-        ),
+        make_form_group("app", vec![make_form_field("name", FieldType::TextInput)]),
     ]
 }
 
@@ -59,13 +68,19 @@ fn find_group_missing() {
 #[test]
 fn get_text_value() {
     let cfg = sample_config();
-    assert_eq!(FormUtils::get_text_value(&cfg, "net", "host"), Some("localhost"));
+    assert_eq!(
+        FormUtils::get_text_value(&cfg, "net", "host"),
+        Some("localhost")
+    );
 }
 
 #[test]
 fn get_integer_value() {
     let cfg = sample_config();
-    assert_eq!(FormUtils::get_integer_value(&cfg, "net", "port"), Some(8080));
+    assert_eq!(
+        FormUtils::get_integer_value(&cfg, "net", "port"),
+        Some(8080)
+    );
 }
 
 #[test]
@@ -85,8 +100,19 @@ fn get_boolean_value() {
 #[test]
 fn set_value_ok() {
     let mut cfg = sample_config();
-    assert!(FormUtils::set_value(&mut cfg, "net", "host", FormValue::Text("example.com".into())).is_ok());
-    assert_eq!(FormUtils::get_text_value(&cfg, "net", "host"), Some("example.com"));
+    assert!(
+        FormUtils::set_value(
+            &mut cfg,
+            "net",
+            "host",
+            FormValue::Text("example.com".into())
+        )
+        .is_ok()
+    );
+    assert_eq!(
+        FormUtils::get_text_value(&cfg, "net", "host"),
+        Some("example.com")
+    );
 }
 
 #[test]
@@ -99,7 +125,10 @@ fn set_value_missing_field() {
 fn set_integer_value() {
     let mut cfg = sample_config();
     assert!(FormUtils::set_integer_value(&mut cfg, "net", "port", 9090).is_ok());
-    assert_eq!(FormUtils::get_integer_value(&cfg, "net", "port"), Some(9090));
+    assert_eq!(
+        FormUtils::get_integer_value(&cfg, "net", "port"),
+        Some(9090)
+    );
 }
 
 #[test]
@@ -113,7 +142,10 @@ fn set_float_value() {
 fn set_boolean_value() {
     let mut cfg = sample_config();
     assert!(FormUtils::set_boolean_value(&mut cfg, "net", "tls", false).is_ok());
-    assert_eq!(FormUtils::get_boolean_value(&cfg, "net", "tls"), Some(false));
+    assert_eq!(
+        FormUtils::get_boolean_value(&cfg, "net", "tls"),
+        Some(false)
+    );
 }
 
 #[test]
@@ -136,13 +168,15 @@ fn append_value() {
 #[test]
 fn append_values() {
     let mut cfg = sample_config();
-    assert!(FormUtils::append_values(
-        &mut cfg,
-        "net",
-        "host",
-        vec![FormValue::Text("b".into()), FormValue::Text("c".into())]
-    )
-    .is_ok());
+    assert!(
+        FormUtils::append_values(
+            &mut cfg,
+            "net",
+            "host",
+            vec![FormValue::Text("b".into()), FormValue::Text("c".into())]
+        )
+        .is_ok()
+    );
     let vals = FormUtils::get_multiple_text_values(&cfg, "net", "host");
     assert_eq!(vals, vec!["localhost", "b", "c"]);
 }
@@ -150,13 +184,15 @@ fn append_values() {
 #[test]
 fn set_multiple_values() {
     let mut cfg = sample_config();
-    assert!(FormUtils::set_multiple_values(
-        &mut cfg,
-        "net",
-        "host",
-        vec![FormValue::Text("a".into()), FormValue::Text("b".into())]
-    )
-    .is_ok());
+    assert!(
+        FormUtils::set_multiple_values(
+            &mut cfg,
+            "net",
+            "host",
+            vec![FormValue::Text("a".into()), FormValue::Text("b".into())]
+        )
+        .is_ok()
+    );
     let vals = FormUtils::get_multiple_text_values(&cfg, "net", "host");
     assert_eq!(vals, vec!["a", "b"]);
 }
@@ -198,18 +234,24 @@ fn get_group_keys() {
 #[test]
 fn get_receive_timeout_found() {
     let cfg = vec![make_form_group(
-        "codec",
+        "timeout_codec",
         vec![make_form_field_with_value(
             "with_receive_timeout",
             FieldType::IntegerInput,
             FormValue::Integer(100),
         )],
     )];
-    assert_eq!(FormUtils::get_receive_timeout(&cfg), Duration::from_millis(100));
+    assert_eq!(
+        FormUtils::get_receive_timeout(&cfg),
+        Duration::from_millis(100)
+    );
 }
 
 #[test]
 fn get_receive_timeout_default() {
     let cfg = sample_config();
-    assert_eq!(FormUtils::get_receive_timeout(&cfg), Duration::from_millis(25));
+    assert_eq!(
+        FormUtils::get_receive_timeout(&cfg),
+        Duration::from_millis(25)
+    );
 }

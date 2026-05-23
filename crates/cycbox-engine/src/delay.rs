@@ -325,7 +325,7 @@ use fallback_timer::HighResTimer;
 /// # Example
 /// ```no_run
 /// use std::time::Duration;
-/// use cycbox::delay::HighResDelay;
+/// use cycbox_engine::delay::HighResDelay;
 ///
 /// # async fn example() -> std::io::Result<()> {
 /// let mut delay = HighResDelay::new()?;

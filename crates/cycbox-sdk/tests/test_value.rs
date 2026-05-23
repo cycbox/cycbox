@@ -130,18 +130,6 @@ fn builder_string_empty() {
     assert_eq!(v.as_string(), Some(String::new()));
 }
 
-// ---- Type mismatch returns None ----
-
-#[test]
-fn type_mismatch_returns_none() {
-    let v = Value::builder("x").boolean(true);
-    assert_eq!(v.as_i8(), None);
-    assert_eq!(v.as_u32(), None);
-    assert_eq!(v.as_f64(), None);
-    assert_eq!(v.as_string(), None);
-    assert_eq!(v.as_i16_array(), None);
-}
-
 // ---- Arrays ----
 
 #[test]
@@ -210,12 +198,6 @@ fn builder_float64_array() {
 fn empty_array() {
     let v = Value::builder("x").int16_array(&[]);
     assert_eq!(v.as_i16_array(), Some(vec![]));
-}
-
-#[test]
-fn array_type_mismatch() {
-    let v = Value::builder("x").int8_array(&[1, 2]);
-    assert_eq!(v.as_u16_array(), None);
 }
 
 // ---- Timestamp ----

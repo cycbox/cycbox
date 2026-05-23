@@ -1,7 +1,7 @@
 use async_trait::async_trait;
+use cycbox_sdk::Message;
 use cycbox_sdk::lua::LuaFunctionRegistrar;
 use cycbox_sdk::message::lua_functions::MessageLuaHelper;
-use cycbox_sdk::Message;
 use std::sync::Arc;
 
 struct MockLuaEngine;
@@ -9,10 +9,8 @@ struct MockLuaEngine;
 #[async_trait]
 impl cycbox_sdk::lua::LuaEngine for MockLuaEngine {
     async fn send_message(&self, _message: Message) {}
-    fn debug(&self, _message: &str) {}
-    fn info(&self, _message: &str) {}
-    fn warn(&self, _message: &str) {}
-    fn error(&self, _message: &str) {}
+
+    fn log(&self, _level: &str, _message: &str) {}
 }
 
 fn setup_lua() -> mlua::Lua {
@@ -27,20 +25,14 @@ fn setup_lua() -> mlua::Lua {
 #[test]
 fn read_u8() {
     let lua = setup_lua();
-    let result: i64 = lua
-        .load("return read_u8(\"\\xff\", 1)")
-        .eval()
-        .unwrap();
+    let result: i64 = lua.load("return read_u8(\"\\xff\", 1)").eval().unwrap();
     assert_eq!(result, 255);
 }
 
 #[test]
 fn read_i8() {
     let lua = setup_lua();
-    let result: i64 = lua
-        .load("return read_i8(\"\\x80\", 1)")
-        .eval()
-        .unwrap();
+    let result: i64 = lua.load("return read_i8(\"\\x80\", 1)").eval().unwrap();
     assert_eq!(result, -128);
 }
 
