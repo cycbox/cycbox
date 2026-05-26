@@ -114,6 +114,13 @@ impl Connection {
         Ok(tx_message)
     }
 
+    /// Cooperatively tear the underlying transport down. Awaited by the
+    /// connection task on cancellation so transports with async cleanup
+    /// (e.g. BLE peripheral disconnect) finish before the task exits.
+    pub async fn close(&mut self) {
+        self.transport.close().await;
+    }
+
     pub async fn handle_command(&mut self, command: &Message) -> Option<Message> {
         match command.get_command().as_str() {
             COMMAND_ID_SET_HIGHLIGHT => {

@@ -60,6 +60,15 @@ pub trait TransportIO: AsyncRead + AsyncWrite + Send + Unpin {
     fn take_session_boundary(&mut self) -> bool {
         false
     }
+
+    /// Cooperatively tear the transport down. Implementations should release
+    /// any OS handles, terminate background bridge tasks, and `await` until
+    /// cleanup is complete. After `close` returns, further `read`/`write`
+    /// calls may fail; the value should only be dropped afterwards.
+    ///
+    /// Default is a no-op for transports whose `Drop` impl already does
+    /// everything synchronously (e.g. owning a single OS handle).
+    async fn close(&mut self) {}
 }
 
 /// Message-based transport trait for all transports.
@@ -90,6 +99,15 @@ pub trait MessageTransport: Send + Unpin {
     /// (pre-decode for RX, post-encode for TX). Default no-op; only stream-based
     /// transports backed by `CodecTransport` honour this. Pass `None` to detach.
     fn set_raw_observer(&mut self, _observer: Option<RawByteObserver>) {}
+
+    /// Cooperatively tear the transport down, awaiting any in-flight cleanup
+    /// (background bridge tasks, remote disconnect handshakes, etc.). Called
+    /// by the engine before dropping the transport on cooperative shutdown
+    /// — abort-based drop is still the fallback if `close` takes too long.
+    ///
+    /// Default is a no-op; transports that own only synchronous OS handles
+    /// (TCP, serial) don't need to override it.
+    async fn close(&mut self) {}
 }
 
 const MAX_BUFFER_SIZE: usize = 1024 * 1024 * 1024;
@@ -303,5 +321,9 @@ impl MessageTransport for CodecTransport {
 
     fn set_raw_observer(&mut self, observer: Option<RawByteObserver>) {
         self.raw_observer = observer;
+    }
+
+    async fn close(&mut self) {
+        self.transport.close().await;
     }
 }

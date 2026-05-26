@@ -150,7 +150,12 @@ pub(crate) fn start_connection(
             // RX/TX loop
             loop {
                 tokio::select! {
-                    _ = ctx.cancelled() => break 'outer,
+                    _ = ctx.cancelled() => {
+                        // Cooperative shutdown — give the transport a chance to
+                        // tear itself down.
+                        connection.close().await;
+                        break 'outer;
+                    }
                     result = connection.recv() => {
                         match result {
                             Ok(Some(msg)) => {

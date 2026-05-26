@@ -128,9 +128,15 @@ pub(crate) fn start_engine_task(
                                 state.running = true;
                                 connections_ctx.cancel();
                                 connections_ctx = cancellation_token.child_token();
-                                // track all connection task and abort
-                                connection_handlers.iter().for_each(|h| h.abort());
-                                connection_handlers = vec![];
+                                // Defensive: any leftover handlers from an
+                                // earlier Stop should already be done. Drain
+                                // with a grace window so we don't race with
+                                // an in-flight `transport.close()`.
+                                drain_connection_handlers(
+                                    std::mem::take(&mut connection_handlers),
+                                    CONNECTION_SHUTDOWN_GRACE,
+                                )
+                                .await;
                                 connection_senders = vec![];
                                 connection_command_senders = vec![];
                                 for (i, config) in connection_manifest.configs.iter().enumerate() {
@@ -193,9 +199,15 @@ pub(crate) fn start_engine_task(
 
                             connections_ctx.cancel();
                             connections_ctx = cancellation_token.child_token();
-                            tokio::time::sleep(Duration::from_millis(15)).await; // wait for tasks to notice cancellation
-                            connection_handlers.iter().for_each(|h| h.abort());
-                            connection_handlers = vec![];
+                            // Connections see the cancel and call
+                            // `transport.close()` (BLE peripheral disconnect,
+                            // etc.). Wait for them to exit cleanly, but cap
+                            // the wait so a wedged transport can't block stop.
+                            drain_connection_handlers(
+                                std::mem::take(&mut connection_handlers),
+                                CONNECTION_SHUTDOWN_GRACE,
+                            )
+                            .await;
                             connection_senders = vec![];
                             connection_command_senders = vec![];
 
@@ -428,8 +440,31 @@ pub(crate) fn start_engine_task(
         }
         // All Engine handles have been dropped; shut down every child task.
         cancellation_token.cancel();
-        // Brief grace period so child tasks can observe the cancellation before we abort.
-        tokio::time::sleep(Duration::from_millis(15)).await;
+        // Give connection tasks the same grace window as a Stop, so transports with async cleanup can finish.
+        drain_connection_handlers(connection_handlers, CONNECTION_SHUTDOWN_GRACE).await;
         delay_queue_handle.abort();
     })
+}
+
+/// Upper bound on how long we wait for connection tasks to acknowledge a cancellation and finish `transport.close()`.
+const CONNECTION_SHUTDOWN_GRACE: Duration = Duration::from_secs(4);
+
+/// Await every handle, but stop waiting once `grace` has elapsed and abort whatever hasn't finished.
+async fn drain_connection_handlers(handles: Vec<JoinHandle<()>>, grace: Duration) {
+    if handles.is_empty() {
+        return;
+    }
+    // Grab abort handles up front: dropping a `JoinHandle` only detaches the task,
+    // so if the timeout fires we need these to actually stop wedged transports.
+    let abort_handles: Vec<_> = handles.iter().map(|h| h.abort_handle()).collect();
+    let drain = async move {
+        for handle in handles {
+            let _ = handle.await;
+        }
+    };
+    if tokio::time::timeout(grace, drain).await.is_err() {
+        for abort in abort_handles {
+            abort.abort();
+        }
+    }
 }
