@@ -8,6 +8,10 @@ pub struct FormFieldOption {
     pub value: FormValue,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Optional icon identifier rendered next to the label by the UI.
+    /// Known values: `"premium"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 impl FormFieldOption {
@@ -17,6 +21,7 @@ impl FormFieldOption {
             label,
             value,
             description: None,
+            icon: None,
         }
     }
 
@@ -26,6 +31,13 @@ impl FormFieldOption {
             label,
             value,
             description: Some(description),
+            icon: None,
         }
+    }
+
+    /// Attach an icon identifier (consumed by the UI to render a leading icon).
+    pub fn with_icon(mut self, icon: impl Into<String>) -> Self {
+        self.icon = Some(icon.into());
+        self
     }
 }

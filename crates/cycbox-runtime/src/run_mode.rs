@@ -74,6 +74,7 @@ impl Manifestable for RuntimeRunMode {
             "transport",
             &l10n.get(locale, "app-transport-config"),
             transports_manifest,
+            &[],
         );
         let codecs: Vec<Box<dyn Codec>> = vec![
             Box::new(TimeoutCodec::default()),
@@ -90,6 +91,7 @@ impl Manifestable for RuntimeRunMode {
             "codec",
             &l10n.get(locale, "app-codec-config"),
             codecs_manifest,
+            &[],
         );
 
         let transformers: Vec<Box<dyn Transformer>> = vec![
@@ -105,6 +107,7 @@ impl Manifestable for RuntimeRunMode {
             "transformer",
             &l10n.get(locale, "app-transformer-config"),
             transformers_manifest,
+            &[],
         );
         manifest.with_encoding_field(&l10n.get(locale, "app-encoding-config"));
         manifest

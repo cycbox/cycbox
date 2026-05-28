@@ -1,0 +1,703 @@
+use async_trait::async_trait;
+use bytes::{Buf, BytesMut};
+use crc::Crc;
+use cycbox_sdk::prelude::*;
+
+pub const CBRT_CODEC_ID: &str = "cbrt_codec";
+
+/// "CBRT" sync word.
+pub const CBRT_SYNC: [u8; 4] = [0x43, 0x42, 0x52, 0x54];
+
+/// CRC-16/MODBUS — poly 0x8005, init 0xFFFF, input/output reflected, no final XOR.
+/// Same algorithm as modbus-codec (see `crates/modbus-codec/src/modbus_rtu/crc.rs`).
+const CRC16: Crc<u16> = Crc::<u16>::new(&crc::CRC_16_MODBUS);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SessionProfile {
+    /// High nibble of byte at offset 4 (`has_ts | has_period | has_crc | has_seq`).
+    flag_bits: u8,
+    /// Datatype code (low nibble).
+    datatype: u8,
+    /// 1..=64.
+    channels: u8,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CbrtCodec {
+    profile: Option<SessionProfile>,
+    last_seq: Option<u8>,
+    last_ts_raw: Option<u32>,
+    wrap_count: u64,
+    frame_count: u64,
+    /// Host-to-device clock offset, tracked as `min(arrival - ts)` across the session so
+    /// frames that happened to arrive with low transport delay tighten the anchor toward
+    /// the true one-way latency floor. `base_us = full_ts_us as i64 + ts_anchor_us`.
+    ts_anchor_us: Option<i64>,
+}
+
+impl CbrtCodec {
+    fn reset_state(&mut self) {
+        self.profile = None;
+        self.last_seq = None;
+        self.last_ts_raw = None;
+        self.wrap_count = 0;
+        self.frame_count = 0;
+        self.ts_anchor_us = None;
+    }
+}
+
+enum ParseOutcome {
+    Complete { frame_end: usize, message: Message },
+    NeedMore,
+    Reject,
+}
+
+impl CbrtCodec {
+    fn parse_at(&mut self, buf: &[u8], sync_pos: usize, arrival_us: u64) -> ParseOutcome {
+        // Need sync(4) + flags(1) + channels(1) at minimum.
+        const MIN_HEAD: usize = 6;
+        if buf.len() < sync_pos + MIN_HEAD {
+            return ParseOutcome::NeedMore;
+        }
+
+        let flags_byte = buf[sync_pos + 4];
+        let has_ts = flags_byte & 0b1000_0000 != 0;
+        let has_period = flags_byte & 0b0100_0000 != 0;
+        let has_crc = flags_byte & 0b0010_0000 != 0;
+        let has_seq = flags_byte & 0b0001_0000 != 0;
+        let datatype = flags_byte & 0x0F;
+
+        if datatype == 0xF {
+            return ParseOutcome::Reject;
+        }
+
+        let channels = buf[sync_pos + 5];
+        if channels == 0 || channels > 64 {
+            return ParseOutcome::Reject;
+        }
+
+        let mut cur = sync_pos + 6;
+
+        let seq = if has_seq {
+            if buf.len() < cur + 1 {
+                return ParseOutcome::NeedMore;
+            }
+            let v = buf[cur];
+            cur += 1;
+            Some(v)
+        } else {
+            None
+        };
+
+        let ts_raw = if has_ts {
+            if buf.len() < cur + 4 {
+                return ParseOutcome::NeedMore;
+            }
+            let v = u32::from_le_bytes([buf[cur], buf[cur + 1], buf[cur + 2], buf[cur + 3]]);
+            cur += 4;
+            Some(v)
+        } else {
+            None
+        };
+
+        let period_us = if has_period {
+            if buf.len() < cur + 2 {
+                return ParseOutcome::NeedMore;
+            }
+            let v = u16::from_le_bytes([buf[cur], buf[cur + 1]]);
+            cur += 2;
+            Some(v)
+        } else {
+            None
+        };
+
+        if buf.len() < cur + 2 {
+            return ParseOutcome::NeedMore;
+        }
+        let payload_len = u16::from_le_bytes([buf[cur], buf[cur + 1]]) as usize;
+        cur += 2;
+
+        // Exactness check (§6.1.6).
+        let chans = channels as usize;
+        if datatype == 0xE {
+            if (payload_len * 8) % chans != 0 {
+                return ParseOutcome::Reject;
+            }
+        } else {
+            let bps = match bytes_per_datatype(datatype) {
+                Some(v) => v,
+                None => return ParseOutcome::Reject,
+            };
+            if payload_len % (chans * bps) != 0 {
+                return ParseOutcome::Reject;
+            }
+        }
+
+        if buf.len() < cur + payload_len {
+            return ParseOutcome::NeedMore;
+        }
+        let payload_start = cur;
+        let payload_end = cur + payload_len;
+        cur = payload_end;
+
+        let frame_end = if has_crc {
+            if buf.len() < cur + 2 {
+                return ParseOutcome::NeedMore;
+            }
+            let stored = u16::from_le_bytes([buf[cur], buf[cur + 1]]);
+            // CRC covers offset 4 (flags byte) through end of payload, sync excluded (§3.9).
+            let computed = CRC16.checksum(&buf[sync_pos + 4..payload_end]);
+            if computed != stored {
+                log::debug!(
+                    "cbrt: CRC mismatch at sync_pos={} (expected 0x{:04X}, got 0x{:04X}); resync",
+                    sync_pos,
+                    computed,
+                    stored
+                );
+                return ParseOutcome::Reject;
+            }
+            cur + 2
+        } else {
+            cur
+        };
+
+        // Session profile (§5.2 / §6.3): first valid frame defines the profile;
+        // any subsequent change starts a new session.
+        let new_profile = SessionProfile {
+            flag_bits: flags_byte & 0xF0,
+            datatype,
+            channels,
+        };
+        let session_changed = match self.profile {
+            None => true,
+            Some(p) => p != new_profile,
+        };
+        if session_changed {
+            self.profile = Some(new_profile);
+            self.last_seq = None;
+            self.last_ts_raw = None;
+            self.wrap_count = 0;
+            self.frame_count = 0;
+            self.ts_anchor_us = None;
+        }
+
+        // Wrap detection (§6.4).
+        let full_ts_us = ts_raw.map(|raw| {
+            if let Some(prev) = self.last_ts_raw
+                && raw < prev
+                && (prev - raw) > 0x8000_0000
+            {
+                self.wrap_count = self.wrap_count.saturating_add(1);
+            }
+            self.last_ts_raw = Some(raw);
+            (self.wrap_count << 32) | (raw as u64)
+        });
+
+        // Sequence drop detection (§6.6).
+        let dropped = match (seq, self.last_seq) {
+            (Some(cur_s), Some(last)) => {
+                let delta = cur_s.wrapping_sub(last);
+                if delta == 0 {
+                    Some(SeqEvent::Duplicate)
+                } else if delta > 1 {
+                    Some(SeqEvent::Dropped(delta - 1))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some(s) = seq {
+            self.last_seq = Some(s);
+        }
+
+        // Anchor per-sample timestamps to the device clock when `has_ts` is present, so
+        // hostside transport/scheduling jitter doesn't show up between frames. The MCU's
+        // `ts` field is the time of the first sample in the frame (§6.5). We track the
+        // host/device offset as `min(arrival - ts)` across the session — a frame with
+        // low transport delay ratchets the anchor down toward the true one-way latency
+        // floor, so a slow first frame (e.g. TCP handshake/buffering) doesn't poison
+        // every subsequent sample.
+        let base_us = match full_ts_us {
+            Some(ts) => {
+                let candidate = (arrival_us as i64).saturating_sub(ts as i64);
+                let anchor = match self.ts_anchor_us {
+                    Some(prev) => prev.min(candidate),
+                    None => candidate,
+                };
+                self.ts_anchor_us = Some(anchor);
+                (ts as i64).saturating_add(anchor).max(0) as u64
+            }
+            None => arrival_us,
+        };
+
+        let payload_slice = &buf[payload_start..payload_end];
+        let sample_count = compute_sample_count(payload_len, datatype, channels);
+        let values = materialize_values(
+            datatype,
+            channels,
+            sample_count,
+            payload_slice,
+            base_us,
+            period_us,
+        );
+
+        let frame_slice = &buf[sync_pos..frame_end];
+        let contents = format_contents(
+            frame_slice,
+            has_seq,
+            has_ts,
+            has_period,
+            has_crc,
+            payload_len,
+        );
+
+        let mut metadata = Vec::with_capacity(8);
+        metadata.push(Value::builder("cbrt_datatype").string(datatype_name(datatype)));
+        metadata.push(Value::builder("cbrt_channels").uint8(channels));
+        metadata.push(Value::builder("cbrt_sample_count").uint32(sample_count as u32));
+        if let Some(s) = seq {
+            metadata.push(Value::builder("cbrt_seq").uint8(s));
+        }
+        match dropped {
+            Some(SeqEvent::Duplicate) => {
+                metadata.push(Value::builder("cbrt_seq_duplicate").boolean(true));
+            }
+            Some(SeqEvent::Dropped(n)) => {
+                metadata.push(Value::builder("cbrt_seq_dropped").uint8(n));
+            }
+            None => {}
+        }
+        if let Some(ts) = full_ts_us {
+            metadata.push(Value::builder("cbrt_ts_us").uint64(ts));
+        }
+        if let Some(p) = period_us {
+            metadata.push(Value::builder("cbrt_period_us").uint16(p));
+        }
+        if session_changed {
+            metadata.push(Value::builder("cbrt_session_start").boolean(true));
+        }
+
+        self.frame_count = self.frame_count.saturating_add(1);
+
+        let message = MessageBuilder::rx(
+            PayloadType::Binary,
+            payload_slice.to_vec(),
+            frame_slice.to_vec(),
+        )
+        .timestamp(arrival_us)
+        .add_values(values)
+        .metadata(metadata)
+        .contents(contents)
+        .build();
+
+        ParseOutcome::Complete { frame_end, message }
+    }
+}
+
+enum SeqEvent {
+    Duplicate,
+    Dropped(u8),
+}
+
+#[async_trait]
+impl Codec for CbrtCodec {
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Message>, CycBoxError> {
+        let arrival_us = Message::current_timestamp();
+
+        loop {
+            let buffer = src.as_ref();
+
+            if buffer.len() < CBRT_SYNC.len() {
+                return Ok(None);
+            }
+
+            // Find next sync from the front of the buffer.
+            let sync_pos = buffer
+                .windows(CBRT_SYNC.len())
+                .position(|w| w == CBRT_SYNC);
+
+            let sync_pos = match sync_pos {
+                Some(i) => i,
+                None => {
+                    // Keep the last 3 bytes in case the sync is split across reads.
+                    let keep = CBRT_SYNC.len() - 1;
+                    if buffer.len() > keep {
+                        src.advance(buffer.len() - keep);
+                    }
+                    return Ok(None);
+                }
+            };
+
+            match self.parse_at(buffer, sync_pos, arrival_us) {
+                ParseOutcome::Complete { frame_end, message } => {
+                    src.advance(frame_end);
+                    return Ok(Some(message));
+                }
+                ParseOutcome::NeedMore => {
+                    // Drop any leading garbage before the sync; wait for more bytes.
+                    if sync_pos > 0 {
+                        src.advance(sync_pos);
+                    }
+                    return Ok(None);
+                }
+                ParseOutcome::Reject => {
+                    // §6.2: advance 1 byte past the start of the rejected sync, rescan.
+                    src.advance(sync_pos + 1);
+                    continue;
+                }
+            }
+        }
+    }
+
+    fn encode(&mut self, item: &mut Message) -> Result<(), CycBoxError> {
+        // Raw passthrough: send payload as-is, no framing added.
+        if item.frame.is_empty() {
+            item.frame = item.payload.clone();
+        }
+        Ok(())
+    }
+
+    fn reset(&mut self) {
+        self.reset_state();
+    }
+}
+
+fn bytes_per_datatype(dt: u8) -> Option<usize> {
+    Some(match dt {
+        0x0 | 0x1 => 1,
+        0x2 | 0x3 | 0xA | 0xC | 0xD => 2,
+        0x4 | 0x5 | 0x8 | 0xB => 4,
+        0x6 | 0x7 | 0x9 => 8,
+        _ => return None, // 0xE (bool-packed) and 0xF (reserved) handled by caller.
+    })
+}
+
+fn datatype_name(dt: u8) -> &'static str {
+    match dt {
+        0x0 => "u8",
+        0x1 => "i8",
+        0x2 => "u16",
+        0x3 => "i16",
+        0x4 => "u32",
+        0x5 => "i32",
+        0x6 => "u64",
+        0x7 => "i64",
+        0x8 => "f32",
+        0x9 => "f64",
+        0xA => "q15",
+        0xB => "q31",
+        0xC => "bf16",
+        0xD => "f16",
+        0xE => "bool",
+        _ => "unknown",
+    }
+}
+
+fn compute_sample_count(payload_len: usize, datatype: u8, channels: u8) -> usize {
+    if channels == 0 {
+        return 0;
+    }
+    let chans = channels as usize;
+    if datatype == 0xE {
+        (payload_len * 8) / chans
+    } else if let Some(bps) = bytes_per_datatype(datatype) {
+        payload_len / (chans * bps)
+    } else {
+        0
+    }
+}
+
+fn materialize_values(
+    datatype: u8,
+    channels: u8,
+    sample_count: usize,
+    payload: &[u8],
+    base_us: u64,
+    period_us: Option<u16>,
+) -> Vec<Value> {
+    let chans = channels as usize;
+    let mut out = Vec::with_capacity(sample_count * chans);
+
+    let sample_ts = |i: usize| -> u64 {
+        match period_us {
+            Some(p) => base_us.saturating_add((i as u64) * (p as u64)),
+            None => base_us,
+        }
+    };
+
+    if datatype == 0xE {
+        for s in 0..sample_count {
+            let ts = sample_ts(s);
+            for ch in 0..chans {
+                let bit_idx = s * chans + ch;
+                let byte = payload[bit_idx / 8];
+                let bit = (byte >> (7 - (bit_idx % 8))) & 0x1;
+                out.push(
+                    Value::builder(channel_id(ch))
+                        .timestamp(ts)
+                        .boolean(bit != 0),
+                );
+            }
+        }
+        return out;
+    }
+
+    let bps = match bytes_per_datatype(datatype) {
+        Some(v) => v,
+        None => return out,
+    };
+    let row = bps * chans;
+
+    for s in 0..sample_count {
+        let ts = sample_ts(s);
+        for ch in 0..chans {
+            let off = s * row + ch * bps;
+            let id = channel_id(ch);
+            let v = match datatype {
+                0x0 => Value::builder(id).timestamp(ts).uint8(payload[off]),
+                0x1 => Value::builder(id).timestamp(ts).int8(payload[off] as i8),
+                0x2 => Value::builder(id)
+                    .timestamp(ts)
+                    .uint16(u16::from_le_bytes([payload[off], payload[off + 1]])),
+                0x3 => Value::builder(id)
+                    .timestamp(ts)
+                    .int16(i16::from_le_bytes([payload[off], payload[off + 1]])),
+                0x4 => Value::builder(id).timestamp(ts).uint32(u32::from_le_bytes([
+                    payload[off],
+                    payload[off + 1],
+                    payload[off + 2],
+                    payload[off + 3],
+                ])),
+                0x5 => Value::builder(id).timestamp(ts).int32(i32::from_le_bytes([
+                    payload[off],
+                    payload[off + 1],
+                    payload[off + 2],
+                    payload[off + 3],
+                ])),
+                0x6 => Value::builder(id).timestamp(ts).uint64(u64::from_le_bytes([
+                    payload[off],
+                    payload[off + 1],
+                    payload[off + 2],
+                    payload[off + 3],
+                    payload[off + 4],
+                    payload[off + 5],
+                    payload[off + 6],
+                    payload[off + 7],
+                ])),
+                0x7 => Value::builder(id).timestamp(ts).int64(i64::from_le_bytes([
+                    payload[off],
+                    payload[off + 1],
+                    payload[off + 2],
+                    payload[off + 3],
+                    payload[off + 4],
+                    payload[off + 5],
+                    payload[off + 6],
+                    payload[off + 7],
+                ])),
+                0x8 => Value::builder(id).timestamp(ts).float32(f32::from_le_bytes([
+                    payload[off],
+                    payload[off + 1],
+                    payload[off + 2],
+                    payload[off + 3],
+                ])),
+                0x9 => Value::builder(id).timestamp(ts).float64(f64::from_le_bytes([
+                    payload[off],
+                    payload[off + 1],
+                    payload[off + 2],
+                    payload[off + 3],
+                    payload[off + 4],
+                    payload[off + 5],
+                    payload[off + 6],
+                    payload[off + 7],
+                ])),
+                0xA => {
+                    let raw = i16::from_le_bytes([payload[off], payload[off + 1]]);
+                    Value::builder(id)
+                        .timestamp(ts)
+                        .float32(raw as f32 / 32768.0)
+                }
+                0xB => {
+                    let raw = i32::from_le_bytes([
+                        payload[off],
+                        payload[off + 1],
+                        payload[off + 2],
+                        payload[off + 3],
+                    ]);
+                    Value::builder(id)
+                        .timestamp(ts)
+                        .float32(raw as f32 / 2_147_483_648.0)
+                }
+                0xC => {
+                    let bits = u16::from_le_bytes([payload[off], payload[off + 1]]);
+                    Value::builder(id).timestamp(ts).float32(bf16_to_f32(bits))
+                }
+                0xD => {
+                    let bits = u16::from_le_bytes([payload[off], payload[off + 1]]);
+                    Value::builder(id).timestamp(ts).float32(f16_to_f32(bits))
+                }
+                _ => continue,
+            };
+            out.push(v);
+        }
+    }
+
+    out
+}
+
+fn channel_id(ch: usize) -> String {
+    format!("ch{ch}")
+}
+
+fn bf16_to_f32(bits: u16) -> f32 {
+    f32::from_bits((bits as u32) << 16)
+}
+
+fn f16_to_f32(bits: u16) -> f32 {
+    let sign = ((bits >> 15) & 0x1) as u32;
+    let exp = ((bits >> 10) & 0x1F) as u32;
+    let mant = (bits & 0x3FF) as u32;
+    let out_bits: u32 = match exp {
+        0 => {
+            if mant == 0 {
+                sign << 31
+            } else {
+                // Subnormal — normalize.
+                let mut m = mant;
+                let mut e: i32 = -14;
+                while m & 0x400 == 0 {
+                    m <<= 1;
+                    e -= 1;
+                }
+                m &= 0x3FF;
+                let e_out = (e + 127) as u32;
+                (sign << 31) | (e_out << 23) | (m << 13)
+            }
+        }
+        0x1F => (sign << 31) | (0xFF << 23) | (mant << 13),
+        _ => {
+            let e_out = (exp as i32 - 15 + 127) as u32;
+            (sign << 31) | (e_out << 23) | (mant << 13)
+        }
+    };
+    f32::from_bits(out_bits)
+}
+
+fn format_contents(
+    frame: &[u8],
+    has_seq: bool,
+    has_ts: bool,
+    has_period: bool,
+    has_crc: bool,
+    payload_len: usize,
+) -> Vec<Content> {
+    let mut contents = Vec::new();
+    let mut pos = 0;
+    let push_hex = |contents: &mut Vec<Content>,
+                    frame: &[u8],
+                    pos: &mut usize,
+                    n: usize,
+                    label: &str,
+                    kind: ContentKind| {
+        let end = (*pos + n).min(frame.len());
+        let hex = hex_of(&frame[*pos..end]);
+        let label_owned = Some(label.to_string());
+        let c = match kind {
+            ContentKind::Header => Content::header(hex.into_bytes(), label_owned),
+            ContentKind::Length => Content::length_field(hex.into_bytes(), label_owned),
+            ContentKind::Data => Content::data(hex.into_bytes(), label_owned),
+            ContentKind::Checksum => Content::checksum(hex.into_bytes(), label_owned),
+        };
+        contents.push(c);
+        *pos += n;
+    };
+
+    push_hex(&mut contents, frame, &mut pos, 4, "Sync", ContentKind::Header);
+    push_hex(
+        &mut contents,
+        frame,
+        &mut pos,
+        1,
+        "Flags+Datatype",
+        ContentKind::Header,
+    );
+    push_hex(
+        &mut contents,
+        frame,
+        &mut pos,
+        1,
+        "Channels",
+        ContentKind::Header,
+    );
+    if has_seq {
+        push_hex(&mut contents, frame, &mut pos, 1, "Seq", ContentKind::Header);
+    }
+    if has_ts {
+        push_hex(
+            &mut contents,
+            frame,
+            &mut pos,
+            4,
+            "Timestamp us",
+            ContentKind::Header,
+        );
+    }
+    if has_period {
+        push_hex(
+            &mut contents,
+            frame,
+            &mut pos,
+            2,
+            "Period us",
+            ContentKind::Header,
+        );
+    }
+    push_hex(
+        &mut contents,
+        frame,
+        &mut pos,
+        2,
+        "Payload Len",
+        ContentKind::Length,
+    );
+    if payload_len > 0 {
+        push_hex(
+            &mut contents,
+            frame,
+            &mut pos,
+            payload_len,
+            "Payload",
+            ContentKind::Data,
+        );
+    }
+    if has_crc {
+        push_hex(
+            &mut contents,
+            frame,
+            &mut pos,
+            2,
+            "CRC-16",
+            ContentKind::Checksum,
+        );
+    }
+
+    contents
+}
+
+enum ContentKind {
+    Header,
+    Length,
+    Data,
+    Checksum,
+}
+
+fn hex_of(b: &[u8]) -> String {
+    let mut s = String::with_capacity(b.len() * 3);
+    for (i, byte) in b.iter().enumerate() {
+        if i > 0 {
+            s.push(' ');
+        }
+        s.push_str(&format!("{byte:02X}"));
+    }
+    s
+}

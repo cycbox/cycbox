@@ -1,0 +1,16 @@
+[package]
+name = "cbrt-codec"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cycbox-sdk = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+log = { workspace = true }
+crc = { workspace = true }
+rust-embed = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

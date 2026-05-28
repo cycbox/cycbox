@@ -96,7 +96,13 @@ impl Manifest {
         Ok(manifest)
     }
 
-    pub fn with_groups(&mut self, group_id: &str, group_label: &str, group_items: Vec<Manifest>) {
+    pub fn with_groups(
+        &mut self,
+        group_id: &str,
+        group_label: &str,
+        group_items: Vec<Manifest>,
+        premium_ids: &[&str],
+    ) {
         if group_items.is_empty() {
             return;
         }
@@ -110,18 +116,18 @@ impl Manifest {
             if values.is_none() {
                 values = Some(vec![FormValue::Text(item_id.clone())]);
             }
+            let mut option = FormFieldOption::with_description(
+                item_manifest.name.clone(),
+                FormValue::Text(item_id.clone()),
+                item_manifest.description.clone(),
+            );
+            if premium_ids.contains(&item_id.as_str()) {
+                option = option.with_icon("premium");
+            }
             if let Some(ref mut options) = options {
-                options.push(FormFieldOption::with_description(
-                    item_manifest.name.clone(),
-                    FormValue::Text(item_id.clone()),
-                    item_manifest.description.clone(),
-                ));
+                options.push(option);
             } else {
-                options = Some(vec![FormFieldOption::with_description(
-                    item_manifest.name.clone(),
-                    FormValue::Text(item_id.clone()),
-                    item_manifest.description.clone(),
-                )]);
+                options = Some(vec![option]);
             }
             // Add condition to config_schema
             for config in item_manifest.config_schema.iter_mut() {
