@@ -6,7 +6,7 @@ members = [
     "crates/cycbox-runtime",
     "crates/cycbox-serialport",
     "crates/serialport-transport",
-    "crates/cbrt-codec",
+    "crates/cbrt",
 ]
 
 [workspace.package]
@@ -23,7 +23,7 @@ cycbox-engine = { path = "crates/cycbox-engine" }
 cycbox-runtime = { path = "crates/cycbox-runtime" }
 cycbox-serialport = { path = "crates/cycbox-serialport" }
 serialport-transport = { path = "crates/serialport-transport" }
-cbrt-codec = { path = "crates/cbrt-codec" }
+cbrt = { path = "crates/cbrt" }
 
 # External dependencies (versions mirror cycbox-pro)
 serialport = { git = "https://github.com/cycbox/serialport-rs", branch = "v4.9.0-cycbox", version = "4.9.0" }

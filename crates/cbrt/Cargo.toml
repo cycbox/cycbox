@@ -1,5 +1,5 @@
 [package]
-name = "cbrt-codec"
+name = "cbrt"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

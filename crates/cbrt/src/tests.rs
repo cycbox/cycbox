@@ -1,4 +1,5 @@
-use crate::codec::{CBRT_SYNC, CbrtCodec};
+use crate::codec::CbrtCodec;
+use crate::parser::CBRT_SYNC;
 use bytes::BytesMut;
 use cycbox_sdk::prelude::*;
 
@@ -349,6 +350,99 @@ fn encode_is_raw_passthrough() {
     Codec::encode(&mut codec, &mut msg).unwrap();
     assert_eq!(msg.frame, b"hello".to_vec());
     assert_eq!(msg.payload, b"hello".to_vec());
+}
+
+// ---- Transformer tests --------------------------------------------------
+
+use crate::transformer::CbrtTransformer;
+
+fn build_rx_msg(connection_id: u32, payload: Vec<u8>) -> Message {
+    MessageBuilder::rx(PayloadType::Binary, payload.clone(), payload)
+        .connection_id(connection_id)
+        .build()
+}
+
+#[test]
+fn transformer_parses_payload_into_values() {
+    let t = CbrtTransformer::new();
+    let payload: Vec<u8> = [1i16, 2, 3, 4, 5, 6, 7, 8]
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+    let frame = build_frame(0x3, 4, None, None, None, &payload, false);
+
+    let mut msg = build_rx_msg(7, frame);
+    t.on_receive(&mut msg).unwrap();
+
+    assert_eq!(msg.values.len(), 8);
+    assert_eq!(msg.values[0].as_i16(), Some(1));
+    assert_eq!(msg.values[7].as_i16(), Some(8));
+    assert_eq!(
+        msg.metadata_value("cbrt_datatype").unwrap().value_payload,
+        b"i16".to_vec()
+    );
+    assert!(!msg.contents.is_empty());
+}
+
+#[test]
+fn transformer_skips_when_codec_already_ran() {
+    let t = CbrtTransformer::new();
+    let payload = vec![1u8, 2, 3, 4];
+    let frame = build_frame(0x0, 4, None, None, None, &payload, false);
+
+    // Simulate codec-already-ran: pre-populate the sentinel metadata + some values.
+    let mut msg = build_rx_msg(0, frame);
+    msg.metadata.push(Value::builder("cbrt_datatype").string("u8"));
+    msg.values
+        .push(Value::builder("preexisting").uint8(99));
+
+    t.on_receive(&mut msg).unwrap();
+
+    // Should still have exactly the preexisting value — no double-parse.
+    assert_eq!(msg.values.len(), 1);
+    assert_eq!(msg.values[0].id, "preexisting");
+}
+
+#[test]
+fn transformer_tracks_per_connection_state() {
+    let t = CbrtTransformer::new();
+    // Two different connections each emit two frames with seqs 5 and 6 — no drops expected.
+    for conn in [10u32, 20u32] {
+        let f1 = build_frame(0x0, 1, Some(5), None, None, &[1], false);
+        let f2 = build_frame(0x0, 1, Some(6), None, None, &[2], false);
+
+        let mut m1 = build_rx_msg(conn, f1);
+        t.on_receive(&mut m1).unwrap();
+        assert!(m1.metadata_value("cbrt_session_start").is_some());
+
+        let mut m2 = build_rx_msg(conn, f2);
+        t.on_receive(&mut m2).unwrap();
+        assert!(m2.metadata_value("cbrt_session_start").is_none());
+        assert!(m2.metadata_value("cbrt_seq_dropped").is_none());
+    }
+}
+
+#[test]
+fn transformer_rejects_payload_without_sync() {
+    let t = CbrtTransformer::new();
+    let mut msg = build_rx_msg(0, vec![0xDE, 0xAD, 0xBE, 0xEF]);
+    assert!(t.on_receive(&mut msg).is_err());
+}
+
+#[test]
+fn transformer_on_send_is_noop() {
+    let t = CbrtTransformer::new();
+    let mut msg = MessageBuilder::tx(
+        0,
+        PayloadType::Binary,
+        b"hello".to_vec(),
+        b"hello".to_vec(),
+    )
+    .build();
+    t.on_send(&mut msg).unwrap();
+    assert_eq!(msg.payload, b"hello".to_vec());
+    assert_eq!(msg.frame, b"hello".to_vec());
+    assert!(msg.values.is_empty());
 }
 
 #[test]
