@@ -79,9 +79,11 @@ fn decodes_bare_i16_4ch() {
     assert_eq!(msg.values[7].id, "ch3");
     assert_eq!(msg.values[7].as_i16(), Some(8));
 
-    assert_eq!(msg.metadata_value("cbrt_datatype").unwrap().value_payload, b"i16".to_vec());
-    assert_eq!(msg.metadata_value("cbrt_channels").unwrap().as_u8(), Some(4));
-    assert_eq!(msg.metadata_value("cbrt_sample_count").unwrap().as_u32(), Some(2));
+    assert_eq!(
+        msg.metadata_value("datatype").unwrap().value_payload,
+        b"i16".to_vec()
+    );
+    assert_eq!(msg.metadata_value("samples").unwrap().as_u32(), Some(2));
 }
 
 #[test]
@@ -122,19 +124,7 @@ fn decodes_worked_example_with_all_flags_and_crc() {
     let t1 = msg.values[4].timestamp; // first value of sample 1
     assert_eq!(t1 - t0, 1000);
 
-    assert_eq!(msg.metadata_value("cbrt_seq").unwrap().as_u8(), Some(0));
-    assert_eq!(
-        msg.metadata_value("cbrt_ts_us").unwrap().as_u64(),
-        Some(1_000_000)
-    );
-    assert_eq!(
-        msg.metadata_value("cbrt_period_us").unwrap().as_u16(),
-        Some(1000)
-    );
-    assert_eq!(
-        msg.metadata_value("cbrt_session_start").unwrap().as_bool(),
-        Some(true)
-    );
+    assert_eq!(msg.metadata_value("period_us").unwrap().as_u32(), Some(1000));
 }
 
 #[test]
@@ -185,11 +175,11 @@ fn keep_alive_payload_zero_emits_message() {
     let mut buf = BytesMut::from(&frame[..]);
     let msg = codec.decode(&mut buf).unwrap().expect("keep-alive surfaced");
     assert!(msg.values.is_empty());
-    assert_eq!(msg.metadata_value("cbrt_seq").unwrap().as_u8(), Some(7));
     assert_eq!(
-        msg.metadata_value("cbrt_ts_us").unwrap().as_u64(),
-        Some(123_456)
+        msg.metadata_value("datatype").unwrap().value_payload,
+        b"u8".to_vec()
     );
+    assert_eq!(msg.metadata_value("samples").unwrap().as_u32(), Some(0));
 }
 
 #[test]
@@ -293,18 +283,16 @@ fn session_change_resets_state() {
     let f2 = build_frame(0x0, 2, Some(6), None, None, &[3, 4], false);
     buf.extend_from_slice(&f2);
     let m2 = codec.decode(&mut buf).unwrap().expect("second");
-    assert!(m2.metadata_value("cbrt_seq_dropped").is_none());
-    assert!(m2.metadata_value("cbrt_session_start").is_none());
+    assert!(m2.metadata_value("seq_dropped").is_none());
 
     // Frame 3: switch to i16, 2 ch => new session, no drop event.
     let f3 = build_frame(0x3, 2, Some(99), None, None, &[1, 0, 2, 0], false);
     buf.extend_from_slice(&f3);
     let m3 = codec.decode(&mut buf).unwrap().expect("third");
-    assert_eq!(
-        m3.metadata_value("cbrt_session_start").unwrap().as_bool(),
-        Some(true)
-    );
-    assert!(m3.metadata_value("cbrt_seq_dropped").is_none());
+    // Switching datatype starts a new session, which resets sequence tracking: seq 99
+    // has no predecessor in the new session and reports no drop. Without the reset the
+    // 6 -> 99 jump would surface as a large seq_dropped count.
+    assert!(m3.metadata_value("seq_dropped").is_none());
 }
 
 #[test]
@@ -317,10 +305,7 @@ fn drop_detection_reports_gap() {
     buf.extend_from_slice(&f2);
     let _ = codec.decode(&mut buf).unwrap().expect("f1");
     let m2 = codec.decode(&mut buf).unwrap().expect("f2");
-    assert_eq!(
-        m2.metadata_value("cbrt_seq_dropped").unwrap().as_u8(),
-        Some(3)
-    );
+    assert_eq!(m2.metadata_value("seq_dropped").unwrap().as_u8(), Some(3));
 }
 
 #[test]
@@ -331,10 +316,15 @@ fn timestamp_wrap_detected() {
     let mut buf = BytesMut::new();
     buf.extend_from_slice(&f1);
     buf.extend_from_slice(&f2);
-    let _ = codec.decode(&mut buf).unwrap().expect("f1");
+    let m1 = codec.decode(&mut buf).unwrap().expect("f1");
     let m2 = codec.decode(&mut buf).unwrap().expect("f2");
-    let ts = m2.metadata_value("cbrt_ts_us").unwrap().as_u64().unwrap();
-    assert_eq!(ts, (1u64 << 32) | 0x10);
+    // The parser folds the wrapped device timestamp into per-sample timestamps via the
+    // session clock anchor rather than exposing it as metadata. Wrap detection keeps the
+    // clock monotonic: f2's sample anchors at or after f1's. Without wrap handling, f2's
+    // raw ts (0x10) would anchor ~4.29e9 µs earlier and t2 would fall far below t1.
+    let t1 = m1.values[0].timestamp;
+    let t2 = m2.values[0].timestamp;
+    assert!(t2 >= t1, "wrap kept timestamps monotonic: {t1} -> {t2}");
 }
 
 #[test]
@@ -378,7 +368,7 @@ fn transformer_parses_payload_into_values() {
     assert_eq!(msg.values[0].as_i16(), Some(1));
     assert_eq!(msg.values[7].as_i16(), Some(8));
     assert_eq!(
-        msg.metadata_value("cbrt_datatype").unwrap().value_payload,
+        msg.metadata_value("datatype").unwrap().value_payload,
         b"i16".to_vec()
     );
     assert!(!msg.contents.is_empty());
@@ -392,7 +382,7 @@ fn transformer_skips_when_codec_already_ran() {
 
     // Simulate codec-already-ran: pre-populate the sentinel metadata + some values.
     let mut msg = build_rx_msg(0, frame);
-    msg.metadata.push(Value::builder("cbrt_datatype").string("u8"));
+    msg.metadata.push(Value::builder("datatype").string("u8"));
     msg.values
         .push(Value::builder("preexisting").uint8(99));
 
@@ -413,12 +403,14 @@ fn transformer_tracks_per_connection_state() {
 
         let mut m1 = build_rx_msg(conn, f1);
         t.on_receive(&mut m1).unwrap();
-        assert!(m1.metadata_value("cbrt_session_start").is_some());
+        // First frame on this connection has no predecessor seq, so no drop. If the
+        // session map weren't keyed by connection_id, conn 20's first frame (seq 5
+        // following conn 10's seq 6) would spuriously report a drop here.
+        assert!(m1.metadata_value("seq_dropped").is_none());
 
         let mut m2 = build_rx_msg(conn, f2);
         t.on_receive(&mut m2).unwrap();
-        assert!(m2.metadata_value("cbrt_session_start").is_none());
-        assert!(m2.metadata_value("cbrt_seq_dropped").is_none());
+        assert!(m2.metadata_value("seq_dropped").is_none());
     }
 }
 

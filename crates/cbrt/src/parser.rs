@@ -31,6 +31,16 @@ pub struct SessionState {
     /// frames that happened to arrive with low transport delay tighten the anchor toward
     /// the true one-way latency floor. `base_us = full_ts_us as i64 + ts_anchor_us`.
     ts_anchor_us: Option<i64>,
+    /// Anchor timestamp of the previous frame, used to infer the sample period when a
+    /// frame carries no `period` field. For `has_ts` frames this is the first sample's
+    /// time; for frames without `has_ts` it is the last sample's time (== arrival).
+    last_anchor_us: Option<u64>,
+    /// Sample count of the previous frame. Needed to infer the period for `has_ts`
+    /// frames, where the inter-anchor gap spans the *previous* frame's samples.
+    last_sample_count: Option<usize>,
+    /// EMA-smoothed inferred period in microseconds (fractional), used when the frame
+    /// omits the `period` field.
+    period_ema_us: Option<f64>,
 }
 
 impl SessionState {
@@ -41,6 +51,9 @@ impl SessionState {
         self.wrap_count = 0;
         self.frame_count = 0;
         self.ts_anchor_us = None;
+        self.last_anchor_us = None;
+        self.last_sample_count = None;
+        self.period_ema_us = None;
     }
 }
 
@@ -186,6 +199,9 @@ pub fn parse_at(
         state.wrap_count = 0;
         state.frame_count = 0;
         state.ts_anchor_us = None;
+        state.last_anchor_us = None;
+        state.last_sample_count = None;
+        state.period_ema_us = None;
     }
 
     // Wrap detection (§6.4).
@@ -240,14 +256,31 @@ pub fn parse_at(
 
     let payload_slice = &buf[payload_start..payload_end];
     let sample_count = compute_sample_count(payload_len, datatype, channels);
-    let values = materialize_values(
-        datatype,
-        channels,
+
+    // Resolve the per-sample timing for this frame.
+    //
+    // Anchor semantics (§6.5): when `has_ts` is present the device timestamp is the time
+    // of the FIRST sample, so samples spread forward from `base_us`. When it is absent
+    // the host arrival time is taken as the time of the LAST sample, so samples spread
+    // backward from `base_us`.
+    //
+    // Period: an explicit `period` field always wins. Otherwise we infer it from the
+    // spacing of consecutive frame anchors and the number of samples spanning the gap,
+    // EMA-smoothed across frames to absorb jitter. This is a lag-1 estimate — the current
+    // frame is spaced with the most recently measured rate — so the first frame of a
+    // session (no reference yet) collapses its samples onto the anchor.
+    let provided_period = period_us.map(|p| p as f64).filter(|p| *p > 0.0);
+    let effective_period = match provided_period {
+        Some(p) => Some(p),
+        None => infer_period(state, has_ts, base_us, sample_count),
+    };
+    let timing = SampleTiming {
+        anchor_us: base_us,
+        period_us: effective_period,
+        anchor_at_last: !has_ts,
         sample_count,
-        payload_slice,
-        base_us,
-        period_us,
-    );
+    };
+    let values = materialize_values(datatype, channels, payload_slice, &timing);
 
     let frame_slice = &buf[sync_pos..frame_end];
     let contents = format_contents(
@@ -259,9 +292,12 @@ pub fn parse_at(
         payload_len,
     );
 
-    let mut metadata = Vec::with_capacity(3);
+    let mut metadata = Vec::with_capacity(4);
     metadata.push(Value::builder("datatype").string(datatype_name(datatype)));
     metadata.push(Value::builder("samples").uint32(sample_count as u32));
+    if let Some(p) = effective_period {
+        metadata.push(Value::builder("period_us").uint32(p.round().min(u32::MAX as f64) as u32));
+    }
     match dropped {
         Some(SeqEvent::Duplicate) => {
             metadata.push(Value::builder("seq_duplicate").boolean(true));
@@ -332,27 +368,97 @@ fn compute_sample_count(payload_len: usize, datatype: u8, channels: u8) -> usize
     }
 }
 
+/// Resolved per-sample timing for a single frame.
+struct SampleTiming {
+    /// For `has_ts` frames, the time of the first sample; otherwise the time of the last
+    /// sample (host arrival).
+    anchor_us: u64,
+    /// Sample period in microseconds (fractional). `None` means the period is unknown
+    /// (first frame of a session with no explicit `period` field), in which case all
+    /// samples collapse onto the anchor.
+    period_us: Option<f64>,
+    /// When true the anchor is the last sample and samples spread backward in time; when
+    /// false the anchor is the first sample and samples spread forward.
+    anchor_at_last: bool,
+    sample_count: usize,
+}
+
+impl SampleTiming {
+    /// Timestamp (µs) of sample `i`, counted from the anchor according to the anchor
+    /// semantics and period. With no period, every sample shares the anchor.
+    fn ts(&self, i: usize) -> u64 {
+        match self.period_us {
+            Some(p) => {
+                let k = if self.anchor_at_last {
+                    // Anchor is the last sample: sample i sits (count-1-i) periods earlier.
+                    i as f64 - (self.sample_count.max(1) as f64 - 1.0)
+                } else {
+                    i as f64
+                };
+                let t = self.anchor_us as f64 + k * p;
+                if t <= 0.0 { 0 } else { t.round() as u64 }
+            }
+            None => self.anchor_us,
+        }
+    }
+}
+
+/// EMA smoothing factor for inferred-period tracking. Small enough to absorb host
+/// arrival jitter, large enough to follow genuine rate changes within a few frames.
+const PERIOD_EMA_ALPHA: f64 = 0.2;
+
+/// Infer the sample period (µs) from the spacing of consecutive frame anchors when the
+/// frame carries no explicit `period` field, updating the session's EMA state.
+///
+/// The sample count spanning the inter-anchor gap depends on the anchor semantics: for
+/// `has_ts` frames the anchor is the first sample, so the gap from the previous anchor to
+/// this one spans the *previous* frame's samples; for frames without `has_ts` the anchor
+/// is the last sample, so the gap spans the *current* frame's samples.
+///
+/// Returns the current EMA estimate (the lag-1 rate used to space this frame), or `None`
+/// for the first frame of a session, where no rate is known yet.
+fn infer_period(
+    state: &mut SessionState,
+    has_ts: bool,
+    anchor_us: u64,
+    sample_count: usize,
+) -> Option<f64> {
+    if let Some(last_anchor) = state.last_anchor_us
+        && anchor_us > last_anchor
+    {
+        let span = if has_ts {
+            state.last_sample_count.unwrap_or(0)
+        } else {
+            sample_count
+        };
+        if span > 0 {
+            let raw = (anchor_us - last_anchor) as f64 / span as f64;
+            if raw.is_finite() && raw > 0.0 {
+                state.period_ema_us = Some(match state.period_ema_us {
+                    Some(prev) => PERIOD_EMA_ALPHA * raw + (1.0 - PERIOD_EMA_ALPHA) * prev,
+                    None => raw,
+                });
+            }
+        }
+    }
+    state.last_anchor_us = Some(anchor_us);
+    state.last_sample_count = Some(sample_count);
+    state.period_ema_us
+}
+
 fn materialize_values(
     datatype: u8,
     channels: u8,
-    sample_count: usize,
     payload: &[u8],
-    base_us: u64,
-    period_us: Option<u16>,
+    timing: &SampleTiming,
 ) -> Vec<Value> {
     let chans = channels as usize;
+    let sample_count = timing.sample_count;
     let mut out = Vec::with_capacity(sample_count * chans);
-
-    let sample_ts = |i: usize| -> u64 {
-        match period_us {
-            Some(p) => base_us.saturating_add((i as u64) * (p as u64)),
-            None => base_us,
-        }
-    };
 
     if datatype == 0xE {
         for s in 0..sample_count {
-            let ts = sample_ts(s);
+            let ts = timing.ts(s);
             for ch in 0..chans {
                 let bit_idx = s * chans + ch;
                 let byte = payload[bit_idx / 8];
@@ -374,7 +480,7 @@ fn materialize_values(
     let row = bps * chans;
 
     for s in 0..sample_count {
-        let ts = sample_ts(s);
+        let ts = timing.ts(s);
         for ch in 0..chans {
             let off = s * row + ch * bps;
             let id = channel_id(ch);

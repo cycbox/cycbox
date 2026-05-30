@@ -50,10 +50,6 @@ fn cbrt_codec_config_description(locale: &str) -> String {
 - **CRC 失败**：丢弃当前候选，从下一个 sync 字开始重同步（中间字节可能正好命中 sync）。
 - **payload_length=0**：作为 keep-alive 输出一条空 `values` 的消息，仍然带 ts/period 等元数据。
 - **编码**：原始透传，不附加任何字节。可以通过 `send_raw` 命令向 MCU 发送启动指令。
-
-#### 元数据
-
-每条接收消息附带 `cbrt_datatype` / `cbrt_channels` / `cbrt_sample_count`，存在对应字段时还会带上 `cbrt_seq` / `cbrt_ts_us` / `cbrt_period_us`、丢包/重复指示。
 "#
         .to_string()
     } else {
@@ -83,9 +79,6 @@ Decode-only codec for the compact, length-delimited, multi-channel realtime samp
 - **payload_length=0** is surfaced as a keep-alive `Message` with empty values but full ts/period/seq metadata.
 - **Encode** is raw passthrough — bytes go out unchanged. Use the engine's `send_raw` command to trigger the MCU stream.
 
-#### Metadata
-
-Every received message carries `cbrt_datatype`, `cbrt_channels`, `cbrt_sample_count`, plus (when present) `cbrt_seq`, `cbrt_ts_us`, `cbrt_period_us`, `cbrt_seq_dropped`/`cbrt_seq_duplicate`, `cbrt_session_start`.
 "#
         .to_string()
     }
