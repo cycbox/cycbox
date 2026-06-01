@@ -35,7 +35,7 @@ Offset  Size  Field
 ```
 
 Notes:
-- Optional fields appear in the order shown above. Because four fields are flag-gated, `payload_length` sits at a variable offset between 8 and 14. Decoders MUST track a running cursor rather than hard-code offsets.
+- Optional fields appear in the order shown above. Because three header fields before it are flag-gated (`seq`, `ts`, `period`), `payload_length` sits at a variable offset between 6 and 13. Decoders MUST track a running cursor rather than hard-code offsets.
 - The 4 lower bits of `flags` byte are part of the datatype code table (§4).
 
 ### 2.1 Overhead table
@@ -45,7 +45,7 @@ Notes:
 | Bare (no optional flags) | 8 B    | 0      | 8 B         |
 | `has_seq + has_crc`      | 9 B    | 2 B    | 11 B        |
 | `has_ts` (one-shot)      | 12 B   | 0      | 12 B        |
-| All flags set            | 14 B   | 2 B    | 16 B        |
+| All flags set            | 15 B   | 2 B    | 17 B        |
 
 ---
 
@@ -213,7 +213,7 @@ For a timestamped frame with `has_period=1`, the timestamp of sample `i` (0-inde
 
 The protocol version is identified by the sync word. Future incompatible versions MUST use a different sync word (e.g., `"CBR2"` = `0x43 0x42 0x52 0x32`). A decoder MAY support multiple versions concurrently by selecting parsing logic based on the matched sync word.
 
-Within version 1 (`"CBRT"`), the four currently-unused datatype codes (`0xC`, `0xD`, `0xE` are allocated above; `0xF` reserved) and any future minor extensions reuse existing flag-gated optional-field slots; no flag bits are currently free, so any field-shape change requires a new version.
+Within version 1 (`"CBRT"`), datatype codes `0x0`..`0xE` are all allocated (§4) and `0xF` is reserved, so there is no free datatype code; any future minor extension must reuse existing flag-gated optional-field slots. No flag bits are currently free either, so any field-shape change requires a new version.
 
 ---
 
@@ -233,7 +233,7 @@ Within version 1 (`"CBRT"`), the four currently-unused datatype codes (`0xC`, `0
 | Sample period µs (u16 LE)   | `E8 03`       | `0x03E8` = 1000 µs                                                |
 | Payload length (u16 LE)     | `50 00`       | `0x0050` = 80 bytes (4 ch × 2 B × 10 samples)                     |
 | Payload                     | 80 bytes      | interleaved i16 LE: `[s0_ch0, s0_ch1, s0_ch2, s0_ch3, s1_ch0, …]` |
-| CRC-16/MODBUS (u16 LE)      | `?? ??`       | over the 95 bytes from offset 4 through end-of-payload            |
+| CRC-16/MODBUS (u16 LE)      | `?? ??`       | over the 91 bytes from offset 4 through end-of-payload            |
 
 **Total frame length**: `4 + 1 + 1 + 1 + 4 + 2 + 2 + 80 + 2 = 97 bytes`.
 

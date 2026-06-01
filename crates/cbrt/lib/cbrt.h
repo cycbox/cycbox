@@ -91,7 +91,7 @@
  *
  * ── Buffer sizing ─────────────────────────────────────────────────────────
  *
- * The wire frame is the fixed header (8..14 bytes depending on flags)
+ * The wire frame is the fixed header (8..15 bytes depending on flags)
  * plus payload plus optional 2-byte CRC. Size `buf` for the worst-case
  * payload your session will produce. Transport guidance from §3.7:
  *
@@ -114,8 +114,10 @@
  *   * No libc calls. No memcpy / memset — all byte writes are explicit
  *     loops or single stores. Floats are reinterpreted via a C99 union
  *     (well-defined type punning), not memcpy.
- *   * Endianness. All multi-byte writes are little-endian, done byte by
- *     byte — the code is correct on both LE and BE hosts.
+ *   * Endianness. The wire format is little-endian (protocol §1) and
+ *     multi-byte fields are emitted with native stores, so this encoder
+ *     targets little-endian hosts only. It is NOT portable to big-endian
+ *     CPUs.
  *   * Timestamp wrap. The u32 µs field wraps every ~71 minutes (§3.5).
  *     The decoder handles the wrap; the encoder just truncates
  *     esp_timer_get_time() / whatever µs source you have.
@@ -183,7 +185,7 @@ typedef struct {
     uint8_t   flags;           /* high-nibble flag bits, exactly as user passed   */
     uint8_t   datatype;        /* low-nibble datatype code                        */
     uint8_t   channels;        /* 1..64                                           */
-    uint8_t   header_size;     /* fixed prefix length: sync..payload_len (8..14)  */
+    uint8_t   header_size;     /* fixed prefix length: sync..payload_len (8..15)  */
     uint8_t   bytes_per_sample;/* 0 for CBRT_DT_BOOL                              */
     int8_t    ts_off;          /* offset of ts field in buf, or -1                */
     int8_t    period_off;      /* offset of period field in buf, or -1            */

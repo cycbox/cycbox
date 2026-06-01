@@ -4,8 +4,8 @@ use std::time::Duration;
 /// Threshold below which we use high-resolution timers (1000 ms)
 const HIGH_RES_THRESHOLD: Duration = Duration::from_millis(1000);
 
-/// High-resolution timer implementation for Linux using timerfd
-#[cfg(target_os = "linux")]
+/// High-resolution timer implementation for Linux/Android using timerfd
+#[cfg(any(target_os = "linux", target_os = "android"))]
 mod linux_timer {
     use libc::time_t;
     use log::debug;
@@ -272,18 +272,169 @@ mod windows_timer {
     unsafe impl Send for HighResTimer {}
 }
 
-/// Fallback timer for other platforms (macOS, etc.)
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+/// High-resolution timer implementation for Apple platforms using kqueue's
+/// `EVFILT_TIMER`. The kqueue file descriptor becomes readable when the timer
+/// fires, which lets us drive it through tokio's `AsyncFd` exactly like the
+/// Linux `timerfd` path — no thread is blocked while waiting.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+mod kqueue_timer {
+    use log::debug;
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::time::Duration;
+    use std::{mem, ptr};
+    use tokio::io::Interest;
+    use tokio::io::unix::AsyncFd;
+
+    /// Identifier for our single `EVFILT_TIMER` registration on the kqueue.
+    const TIMER_IDENT: libc::uintptr_t = 1;
+
+    pub struct HighResTimer {
+        async_fd: AsyncFd<OwnedFd>,
+    }
+
+    impl HighResTimer {
+        pub fn new() -> std::io::Result<Self> {
+            // SAFETY: kqueue() returns a new file descriptor or -1 on error.
+            let kq = unsafe { libc::kqueue() };
+            if kq < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            // SAFETY: we exclusively own the fd returned by kqueue().
+            let owned_fd = unsafe { OwnedFd::from_raw_fd(kq) };
+
+            let async_fd = AsyncFd::with_interest(owned_fd, Interest::READABLE)
+                .map_err(std::io::Error::other)?;
+
+            debug!("High-resolution timer created with kqueue/EVFILT_TIMER");
+
+            Ok(Self { async_fd })
+        }
+
+        /// Set timer to fire after the given duration
+        pub fn set_timer(&mut self, duration: Duration) -> std::io::Result<()> {
+            // NOTE_NSECONDS gives a one-shot timer with nanosecond resolution.
+            // Clamp to at least 1ns so a sub-nanosecond duration still arms.
+            let nanos = (duration.as_nanos() as libc::intptr_t).max(1);
+
+            let kev = libc::kevent {
+                ident: TIMER_IDENT,
+                filter: libc::EVFILT_TIMER,
+                flags: libc::EV_ADD | libc::EV_ONESHOT,
+                fflags: libc::NOTE_NSECONDS,
+                data: nanos,
+                udata: ptr::null_mut(),
+            };
+
+            // SAFETY: valid kq fd, one change entry, no event list requested.
+            let rc = unsafe {
+                libc::kevent(
+                    self.async_fd.get_ref().as_raw_fd(),
+                    &kev,
+                    1,
+                    ptr::null_mut(),
+                    0,
+                    ptr::null(),
+                )
+            };
+
+            if rc < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            Ok(())
+        }
+
+        /// Wait for the timer to fire
+        pub async fn wait(&mut self) -> std::io::Result<()> {
+            // Wait for the kqueue to become readable (timer expired).
+            let mut guard = self.async_fd.readable().await?;
+
+            // Drain the fired event with a zero timeout (non-blocking) so the
+            // fd returns to the non-readable state. EV_ONESHOT removed it for us.
+            let mut ev: libc::kevent = unsafe { mem::zeroed() };
+            let timeout = libc::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            };
+
+            // SAFETY: valid kq fd, event list of length 1, immediate timeout.
+            let rc = unsafe {
+                libc::kevent(
+                    self.async_fd.get_ref().as_raw_fd(),
+                    ptr::null(),
+                    0,
+                    &mut ev,
+                    1,
+                    &timeout,
+                )
+            };
+
+            guard.clear_ready();
+
+            if rc < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            Ok(())
+        }
+
+        /// Disarm the timer
+        pub fn disarm(&mut self) -> std::io::Result<()> {
+            // EV_ONESHOT auto-removes the timer once it fires; this deletes a
+            // still-pending registration. ENOENT (already gone) is not an error.
+            let kev = libc::kevent {
+                ident: TIMER_IDENT,
+                filter: libc::EVFILT_TIMER,
+                flags: libc::EV_DELETE,
+                fflags: 0,
+                data: 0,
+                udata: ptr::null_mut(),
+            };
+
+            // SAFETY: valid kq fd, one change entry, no event list requested.
+            let rc = unsafe {
+                libc::kevent(
+                    self.async_fd.get_ref().as_raw_fd(),
+                    &kev,
+                    1,
+                    ptr::null_mut(),
+                    0,
+                    ptr::null(),
+                )
+            };
+
+            if rc < 0 {
+                let err = std::io::Error::last_os_error();
+                if err.raw_os_error() != Some(libc::ENOENT) {
+                    return Err(err);
+                }
+            }
+
+            Ok(())
+        }
+    }
+}
+
+/// Fallback timer for platforms without a high-resolution timer implementation.
+///
+/// Note: this module is effectively unused — `HighResDelay::new()` only ever
+/// constructs a `HighResTimer` on supported platforms and leaves `timer: None`
+/// elsewhere, so `delay()` always routes these platforms through
+/// `tokio::time::sleep`. It is kept only to satisfy the type alias below.
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios"
+)))]
 mod fallback_timer {
     use std::time::Duration;
 
     pub struct HighResTimer;
 
     impl HighResTimer {
-        pub fn new() -> std::io::Result<Self> {
-            Ok(Self)
-        }
-
         pub fn set_timer(&mut self, _duration: Duration) -> std::io::Result<()> {
             Ok(())
         }
@@ -291,20 +442,25 @@ mod fallback_timer {
         pub async fn wait(&mut self) -> std::io::Result<()> {
             Ok(())
         }
-
-        pub fn disarm(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use linux_timer::HighResTimer;
 
 #[cfg(target_os = "windows")]
 use windows_timer::HighResTimer;
 
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+use kqueue_timer::HighResTimer;
+
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios"
+)))]
 use fallback_timer::HighResTimer;
 
 /// A reusable high-resolution delay mechanism
@@ -314,8 +470,9 @@ use fallback_timer::HighResTimer;
 /// avoiding the overhead of creating and destroying timer resources.
 ///
 /// # Platform Support
-/// - **Linux**: Uses timerfd with CLOCK_MONOTONIC
+/// - **Linux / Android**: Uses timerfd with CLOCK_MONOTONIC
 /// - **Windows**: Uses high-resolution waitable timers
+/// - **macOS / iOS**: Uses kqueue EVFILT_TIMER with NOTE_NSECONDS
 /// - **Other platforms**: Falls back to tokio::time::sleep
 ///
 /// # Performance
@@ -351,7 +508,13 @@ impl HighResDelay {
     /// # Errors
     /// Returns an error if the platform-specific timer creation fails.
     pub fn new() -> std::io::Result<Self> {
-        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "android",
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "ios"
+        ))]
         {
             let timer = match HighResTimer::new() {
                 Ok(t) => {
@@ -369,7 +532,13 @@ impl HighResDelay {
             Ok(Self { timer })
         }
 
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        #[cfg(not(any(
+            target_os = "linux",
+            target_os = "android",
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "ios"
+        )))]
         {
             Ok(Self { timer: None })
         }
@@ -423,7 +592,13 @@ impl HighResDelay {
     /// This is useful if you need to cancel a pending timer operation.
     /// On platforms without high-resolution timers, this is a no-op.
     pub fn disarm(&mut self) -> std::io::Result<()> {
-        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "android",
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "ios"
+        ))]
         {
             if let Some(ref mut timer) = self.timer {
                 return timer.disarm();
