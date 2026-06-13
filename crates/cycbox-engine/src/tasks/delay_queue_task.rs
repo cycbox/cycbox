@@ -14,24 +14,31 @@ use tokio_util::sync::CancellationToken;
 struct ScheduledMessage {
     pub message: Message,
     pub deadline: Instant,
+    seq: u64,
 }
 
 impl ScheduledMessage {
-    fn from_message(message: Message) -> Self {
+    fn from_message(message: Message, seq: u64) -> Self {
         let target = std::time::UNIX_EPOCH + Duration::from_micros(message.timestamp);
         let deadline = match target.duration_since(std::time::SystemTime::now()) {
             Ok(remaining) => Instant::now() + remaining,
             Err(_) => Instant::now(),
         };
-        Self { message, deadline }
+        Self {
+            message,
+            deadline,
+            seq,
+        }
     }
 }
 
-// Implement ordering for priority queue (min-heap by deadline)
+// Implement ordering for priority queue (min-heap by deadline, FIFO on ties).
 impl Ord for ScheduledMessage {
     fn cmp(&self, other: &Self) -> Ordering {
-        // Reverse ordering for min-heap behavior
-        other.deadline.cmp(&self.deadline)
+        other
+            .deadline
+            .cmp(&self.deadline)
+            .then_with(|| other.seq.cmp(&self.seq))
     }
 }
 
@@ -45,7 +52,7 @@ impl Eq for ScheduledMessage {}
 
 impl PartialEq for ScheduledMessage {
     fn eq(&self, other: &Self) -> bool {
-        self.deadline == other.deadline
+        self.deadline == other.deadline && self.seq == other.seq
     }
 }
 
@@ -59,6 +66,9 @@ pub fn start_delay_queue_task(
 ) -> JoinHandle<()> {
     crate::RUNTIME.spawn(async move {
         let mut queue: BinaryHeap<ScheduledMessage> = BinaryHeap::new();
+        // Ever-increasing enqueue counter; gives same-deadline messages a stable
+        // FIFO order (see `ScheduledMessage`'s `Ord`).
+        let mut next_seq: u64 = 0;
         let mut delay = match HighResDelay::new() {
             Ok(d) => d,
             Err(e) => {
@@ -94,7 +104,8 @@ pub fn start_delay_queue_task(
                         match msg {
                             Some(msg) => {
                                 let _ = delay.disarm();
-                                queue.push(ScheduledMessage::from_message(msg));
+                                queue.push(ScheduledMessage::from_message(msg, next_seq));
+                                next_seq += 1;
                             }
                             None => {
                                 debug!("DelayQueueTask: Receiver channel closed, exiting");
@@ -115,7 +126,8 @@ pub fn start_delay_queue_task(
                         match msg {
                             Some(msg) => {
                                 debug!("DelayQueueTask: Received new scheduled message");
-                                queue.push(ScheduledMessage::from_message(msg));
+                                queue.push(ScheduledMessage::from_message(msg, next_seq));
+                                next_seq += 1;
                             }
                             None => {
                                 debug!("DelayQueueTask: Receiver channel closed, exiting");
