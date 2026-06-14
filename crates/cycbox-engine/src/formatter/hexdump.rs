@@ -1,5 +1,10 @@
 use cycbox_sdk::{Color, Content, Message};
 
+/// Maximum number of frame bytes rendered as a hexdump. Some transports flush
+/// very large frames in a single message, and a full hexdump of that builds hundreds of thousands of
+/// Content nodes, enough to stall protobuf serialization and freeze the UI.
+const MAX_HEXDUMP_BYTES: usize = 16 * 1024;
+
 /// Format a message's frame as hexdump and populate the hex_contents field
 ///
 /// This utility function formats binary data as a hexadecimal dump with an ASCII column,
@@ -41,7 +46,9 @@ pub fn format_hexdump(message: &mut Message, highlight_bytes: Option<Vec<u8>>) {
 
     // Clear existing hex contents
     message.hex_contents.clear();
-    let data = &message.frame;
+    let total_len = message.frame.len();
+    let truncated = total_len > MAX_HEXDUMP_BYTES;
+    let data = &message.frame[..total_len.min(MAX_HEXDUMP_BYTES)];
     let mut has_highlighted_content = false;
 
     // Handle empty data
@@ -189,6 +196,15 @@ pub fn format_hexdump(message: &mut Message, highlight_bytes: Option<Vec<u8>>) {
         }
     }
 
+    // Note the truncation so the user knows the dump is a prefix, not the whole frame.
+    if truncated {
+        message.hex_contents.push(Content::separator("\n"));
+        message.hex_contents.push(Content::data(
+            format!("... {MAX_HEXDUMP_BYTES} of {total_len} bytes shown (hexdump truncated)"),
+            None,
+        ));
+    }
+
     message.highlighted = has_highlighted_content;
 }
 
@@ -237,5 +253,46 @@ fn byte_to_ascii_char(byte: u8) -> char {
         byte as char
     } else {
         '.'
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cycbox_sdk::MessageBuilder;
+
+    fn dump_text(message: &Message) -> String {
+        message
+            .hex_contents
+            .iter()
+            .map(|c| String::from_utf8_lossy(&c.payload).into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn small_frame_is_rendered_in_full() {
+        let mut message = MessageBuilder::new().frame(b"hello world".to_vec()).build();
+        format_hexdump(&mut message, None);
+
+        let text = dump_text(&message);
+        assert!(!text.contains("truncated"));
+        // ASCII column reproduces the printable payload.
+        assert!(text.contains("hello world"));
+    }
+
+    #[test]
+    fn oversized_frame_is_truncated() {
+        let total = MAX_HEXDUMP_BYTES * 2 + 7;
+        let mut message = MessageBuilder::new().frame(vec![0xABu8; total]).build();
+        format_hexdump(&mut message, None);
+
+        let text = dump_text(&message);
+        assert!(text.contains("hexdump truncated"));
+        assert!(text.contains(&total.to_string()));
+
+        // Only the capped prefix is dumped, so the node count is bounded by the
+        // cap (a handful of nodes per 16-byte row) rather than the full frame.
+        let capped_rows = MAX_HEXDUMP_BYTES / 16;
+        assert!(message.hex_contents.len() < capped_rows * 16);
     }
 }

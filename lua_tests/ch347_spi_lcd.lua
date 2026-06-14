@@ -1,116 +1,65 @@
 -- Waveshare 1.69" LCD Test (ST7789V2)
--- CH347 SPI transport at CS0, with GPIO0 for DC (Data/Command) and GPIO1 for RST (Reset).
--- Fixes an overflow error in coordinate byte calculation and fills the screen with color stripes.
+-- CH347 SPI at CS0, GPIO6 = DC (Data/Command), GPIO7 = RST (Reset).
+-- Fills the 240x280 screen with red / green / blue horizontal bands.
 --
--- Device: Waveshare 1.69inch LCD Module, 240x280 resolution.
--- Interface: SPI (Mode 0), DC=GPIO0, RST=GPIO1.
+-- Uses the `lcd_new` builder: every :cmd / :data / :reset / :delay call appends
+-- one segment to a program, and a single :flush() sends the whole thing as one
+-- `lcd_op` message. The CH347 worker replays it atomically on its device thread,
+-- toggling DC/RST, chunking the pixel blob and using real delays -- so there is
+-- no manual DC toggling, no `t` timeline and no hand-rolled chunk loop.
 --
--- Register Map Summary (from ST7789V2 datasheet):
--- 0x36: MADCTL (Memory Data Access Control)
--- 0x3A: COLMOD (Interface Pixel Format)
--- 0x21: INVON (Display Inversion On)
--- 0x11: SLPOUT (Sleep Out)
--- 0x29: DISPON (Display On)
--- 0x2A/0x2B: CASET/RASET (Column/Row Address Set)
--- 0x2C: RAMWR (Memory Write)
+-- Register map (ST7789V2): 0x36 MADCTL, 0x3A COLMOD, 0x21 INVON, 0x11 SLPOUT,
+-- 0x29 DISPON, 0x2A/0x2B CASET/RASET, 0x2C RAMWR.
 
-local DC_PIN = 6
-local RST_PIN = 7
-local CS = 0
-
--- Helper to send a command byte
-local function lcd_cmd(cmd, delay)
-    gpio_write(DC_PIN, 0, 0, delay or 0)
-    spi_write(CS, string.char(cmd), 0, delay or 0)
-end
-
--- Helper to send data (single byte or string)
-local function lcd_data(data, delay)
-    gpio_write(DC_PIN, 1, 0, delay or 0)
-    local payload = type(data) == "number" and string.char(data) or data
-    spi_write(CS, payload, 0, delay or 0)
+local function be16(v)
+    return string.char(bit.band(bit.rshift(v, 8), 0xFF), bit.band(v, 0xFF))
 end
 
 function on_start()
-    log("info", "Starting LCD 1.69 test with coordinate fixes...")
+    log("info", "Starting LCD 1.69 test (lcd_op)...")
 
-    -- 1. Hardware Reset Sequence
-    gpio_write(RST_PIN, 1, 0, 0)
-    gpio_write(RST_PIN, 0, 0, 20)
-    gpio_write(RST_PIN, 1, 0, 40)
+    local lcd = lcd_new { cs = 0, dc = 6, rst = 7 }
 
-    -- 2. Initialization sequence
-    local t = 100
-    
-    lcd_cmd(0x36, t) lcd_data(0x00, t) t = t + 5 -- MADCTL
-    lcd_cmd(0x3A, t) lcd_data(0x05, t) t = t + 5 -- COLMOD (16bit RGB565)
-    
-    lcd_cmd(0xB2, t) -- PORCTRL
-    lcd_data(string.char(0x0B, 0x0B, 0x00, 0x33, 0x35), t) t = t + 5
-    
-    lcd_cmd(0xB7, t) lcd_data(0x11, t) t = t + 5 -- GCTRL
-    lcd_cmd(0xBB, t) lcd_data(0x35, t) t = t + 5 -- VCOMS
-    lcd_cmd(0xC0, t) lcd_data(0x2C, t) t = t + 5 -- LCMCTRL
-    lcd_cmd(0xC2, t) lcd_data(0x01, t) t = t + 5 -- VDVVRHEN
-    lcd_cmd(0xC3, t) lcd_data(0x0D, t) t = t + 5 -- VRHS
-    lcd_cmd(0xC4, t) lcd_data(0x20, t) t = t + 5 -- VDVS
-    lcd_cmd(0xC6, t) lcd_data(0x13, t) t = t + 5 -- FRCTRL2 (60Hz)
-    
-    lcd_cmd(0xD0, t) lcd_data(string.char(0xA4, 0xA1), t) t = t + 5 -- PWCTRL1
-    lcd_cmd(0xD6, t) lcd_data(0xA1, t) t = t + 5 -- Unknown/Product specific
-    
-    -- Gamma Positive
-    lcd_cmd(0xE0, t) 
-    lcd_data(string.char(0xF0, 0x06, 0x0B, 0x0A, 0x09, 0x26, 0x29, 0x33, 0x41, 0x18, 0x16, 0x15, 0x29, 0x2D), t) t = t + 10
-    
-    -- Gamma Negative
-    lcd_cmd(0xE1, t) 
-    lcd_data(string.char(0xF0, 0x04, 0x08, 0x08, 0x07, 0x03, 0x28, 0x32, 0x40, 0x3B, 0x19, 0x18, 0x2A, 0x2E), t) t = t + 10
-    
-    lcd_cmd(0x21, t) t = t + 5 -- Display Inversion ON
-    lcd_cmd(0x11, t) t = t + 120 -- Sleep Out
-    lcd_cmd(0x29, t) t = t + 20  -- Display ON
+    -- 1. Hardware reset: high 1ms, low 20ms, high 40ms.
+    lcd:reset(1, 20, 40)
 
-    -- 3. Draw Color Test Bars
-    -- Set window to full screen (240x280)
-    -- Portrait offset Y starts at 20 per datasheet/Python driver for this specific glass
+    -- 2. Init sequence ----------------------------------------------------
+    lcd:cmd(0x36, 0x00)                                       -- MADCTL
+    lcd:cmd(0x3A, 0x05)                                       -- COLMOD (RGB565)
+    lcd:cmd(0xB2, { 0x0B, 0x0B, 0x00, 0x33, 0x35 })          -- PORCTRL
+    lcd:cmd(0xB7, 0x11)                                       -- GCTRL
+    lcd:cmd(0xBB, 0x35)                                       -- VCOMS
+    lcd:cmd(0xC0, 0x2C)                                       -- LCMCTRL
+    lcd:cmd(0xC2, 0x01)                                       -- VDVVRHEN
+    lcd:cmd(0xC3, 0x0D)                                       -- VRHS
+    lcd:cmd(0xC4, 0x20)                                       -- VDVS
+    lcd:cmd(0xC6, 0x13)                                       -- FRCTRL2 (60Hz)
+    lcd:cmd(0xD0, { 0xA4, 0xA1 })                            -- PWCTRL1
+    lcd:cmd(0xD6, 0xA1)                                       -- product specific
+    lcd:cmd(0xE0, { 0xF0, 0x06, 0x0B, 0x0A, 0x09, 0x26, 0x29, 0x33, 0x41, 0x18, 0x16, 0x15, 0x29, 0x2D }) -- gamma+
+    lcd:cmd(0xE1, { 0xF0, 0x04, 0x08, 0x08, 0x07, 0x03, 0x28, 0x32, 0x40, 0x3B, 0x19, 0x18, 0x2A, 0x2E }) -- gamma-
+    lcd:cmd(0x21)                                             -- INVON
+    lcd:cmd(0x11) lcd:delay(120)                              -- SLPOUT + settle
+    lcd:cmd(0x29) lcd:delay(20)                               -- DISPON
+
+    -- 3. Window: full 240x280. This glass starts at Y offset 20.
     local x_start, x_end = 0, 239
-    local y_start, y_end = 20, 20 + 280 - 1 -- 299
+    local y_start, y_end = 20, 20 + 280 - 1
+    lcd:cmd(0x2A, be16(x_start) .. be16(x_end))               -- CASET
+    lcd:cmd(0x2B, be16(y_start) .. be16(y_end))               -- RASET
+    lcd:cmd(0x2C)                                             -- RAMWR
 
-    -- CASET: X range
-    lcd_cmd(0x2A, t) 
-    lcd_data(string.char(
-        bit.band(bit.rshift(x_start, 8), 0xFF), bit.band(x_start, 0xFF), 
-        bit.band(bit.rshift(x_end, 8), 0xFF), bit.band(x_end, 0xFF)
-    ), t)
-    
-    -- RASET: Y range
-    lcd_cmd(0x2B, t) 
-    lcd_data(string.char(
-        bit.band(bit.rshift(y_start, 8), 0xFF), bit.band(y_start, 0xFF), 
-        bit.band(bit.rshift(y_end, 8), 0xFF), bit.band(y_end, 0xFF)
-    ), t)
-    
-    lcd_cmd(0x2C, t) t = t + 5 -- RAMWR
-    
-    -- Draw three horizontal bands (Red, Green, Blue)
-    -- Total pixels: 240 * 280 = 67,200. Each color ~22,400 pixels.
-    local colors = {
-        string.char(0xF8, 0x00), -- Red
-        string.char(0x07, 0xE0), -- Green
-        string.char(0x00, 0x1F)  -- Blue
-    }
+    -- 4. Three color bands (worker chunks this 134400-byte blob for us).
+    local rows = math.floor(280 / 3)
+    local red   = string.rep(string.char(0xF8, 0x00), 240 * rows)
+    local green = string.rep(string.char(0x07, 0xE0), 240 * rows)
+    local blue  = string.rep(string.char(0x00, 0x1F), 240 * (280 - 2 * rows))
+    lcd:data(red)
+    lcd:data(green)
+    lcd:data(blue)
 
-    gpio_write(DC_PIN, 1, 0, t)
-    for i = 1, 3 do
-        local chunk = string.rep(colors[i], 2240) -- 2240 pixels per chunk (staying within SPI buffer limits)
-        for _ = 1, 10 do
-            spi_write(CS, chunk, 0, t+1)
-            t = t + 5
-        end
-    end
-    
-    log("info", "LCD test sequence with coordinate fixes queued.")
+    lcd:flush()
+    log("info", "LCD test program flushed.")
 end
 
 function on_receive()
