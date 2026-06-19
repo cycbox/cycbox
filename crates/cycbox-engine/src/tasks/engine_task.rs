@@ -20,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 ///
 /// The engine task is the central command loop. It owns all mutable engine state and
 /// processes commands one at a time, eliminating the need for locks on shared state. It also
-/// drives the 100 ms Lua timer tick.
+/// drives the 20 ms Lua timer tick.
 ///
 /// Two mpsc lanes feed the task: `control_receiver` for UI-driven control commands and
 /// `message_receiver` for high-frequency data-plane traffic. The select is `biased` so that
@@ -79,9 +79,9 @@ pub(crate) fn start_engine_task(
         let lua_helper_registry = run_mode.lua_helper_registry();
         let mut lua_script = LuaScript::new("", &[], engine.clone(), lua_helper_registry, vec![])
             .expect("Failed to create empty Lua script");
-        // 100 ms periodic tick drives LuaScript::on_timer. Use `Delay` so a stall
+        // 20 ms periodic tick drives LuaScript::on_timer. Use `Delay` so a stall
         // (e.g. slow Lua hook) doesn't cause a burst of catch-up ticks afterwards.
-        let mut timer_interval = interval(Duration::from_millis(100));
+        let mut timer_interval = interval(Duration::from_millis(20));
         timer_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
         loop {
