@@ -20,8 +20,8 @@ futures = { workspace = true }
 mio = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.31.2", features = ["term"] }
-libc = "0.2.186"
+nix = { version = "0.31.3", features = ["term"] }
+libc = "0.2.189"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [
