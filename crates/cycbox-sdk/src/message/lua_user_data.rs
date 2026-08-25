@@ -124,7 +124,7 @@ impl UserData for Message {
         // Payload field
         fields.add_field_method_get("payload", |lua, this| lua.create_string(&this.payload));
 
-        fields.add_field_method_set("payload", |_, this, bytes: Option<mlua::String>| {
+        fields.add_field_method_set("payload", |_, this, bytes: Option<mlua::LuaString>| {
             this.payload = bytes.map(|s| s.as_bytes().to_vec()).unwrap_or_default();
             Ok(())
         });
@@ -132,7 +132,7 @@ impl UserData for Message {
         // Frame field
         fields.add_field_method_get("frame", |lua, this| lua.create_string(&this.frame));
 
-        fields.add_field_method_set("frame", |_, this, bytes: Option<mlua::String>| {
+        fields.add_field_method_set("frame", |_, this, bytes: Option<mlua::LuaString>| {
             this.frame = bytes.map(|s| s.as_bytes().to_vec()).unwrap_or_default();
             Ok(())
         });
@@ -176,7 +176,7 @@ impl UserData for Message {
 
         fields.add_field_method_set(
             "message_type",
-            |_, this, message_type: mlua::String| {
+            |_, this, message_type: mlua::LuaString| {
                 this.message_type = message_type
                     .to_str()
                     .map_err(|_| {

@@ -82,7 +82,7 @@ fn table_to_line_bytes(table: &mlua::Table, fn_name: &str) -> Result<Vec<u8>, ml
     }
     let mut bytes = Vec::new();
     for i in 1..=len {
-        let s: mlua::String = table.raw_get(i).map_err(|e| {
+        let s: mlua::LuaString = table.raw_get(i).map_err(|e| {
             mlua::Error::RuntimeError(format!("{}: lines[{}]: {}", fn_name, i, e))
         })?;
         let s_bytes = s.as_bytes();
@@ -571,7 +571,7 @@ pub(super) fn register_influxdb_helpers(lua: &Lua) -> Result<()> {
                 String,
                 String,
                 String,
-                mlua::String,
+                mlua::LuaString,
                 Option<String>,
             )| async move {
                 let line_bytes = line_data.as_bytes().to_vec();
@@ -619,7 +619,7 @@ pub(super) fn register_influxdb_helpers(lua: &Lua) -> Result<()> {
                 String,
                 String,
                 String,
-                mlua::String,
+                mlua::LuaString,
                 Option<String>,
             )| async move {
                 let line_bytes = line_data.as_bytes().to_vec();
@@ -675,7 +675,7 @@ pub(super) fn register_influxdb_helpers(lua: &Lua) -> Result<()> {
                 String,
                 String,
                 String,
-                mlua::String,
+                mlua::LuaString,
                 Option<String>,
                 Option<bool>,
                 Option<bool>,
@@ -726,7 +726,7 @@ pub(super) fn register_influxdb_helpers(lua: &Lua) -> Result<()> {
                 String,
                 String,
                 String,
-                mlua::String,
+                mlua::LuaString,
                 Option<String>,
                 Option<bool>,
                 Option<bool>,

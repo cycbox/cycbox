@@ -61,7 +61,7 @@ pub(super) fn register_http_helpers(lua: &Lua) -> Result<()> {
     //
     // Proxy: Automatically uses HTTP_PROXY/HTTPS_PROXY/ALL_PROXY environment variables.
     let http_post = lua.create_async_function(
-        |_lua, (url, body, headers): (String, mlua::String, Option<mlua::Table>)| async move {
+        |_lua, (url, body, headers): (String, mlua::LuaString, Option<mlua::Table>)| async move {
             if url.is_empty() {
                 warn!("[Lua] http_post: URL cannot be empty");
                 return Ok(false);

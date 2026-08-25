@@ -16,7 +16,7 @@ impl LuaFunctionRegistrar for MessageLuaHelper {
 
         // read_u8(bytes, offset) -> integer
         let read_u8_fn = lua
-            .create_function(|_, (bytes, offset): (mlua::String, usize)| {
+            .create_function(|_, (bytes, offset): (mlua::LuaString, usize)| {
                 let data = bytes.as_bytes();
                 if offset < 1 || offset > data.len() {
                     return Err(mlua::Error::RuntimeError(format!(
@@ -34,7 +34,7 @@ impl LuaFunctionRegistrar for MessageLuaHelper {
 
         // read_i8(bytes, offset) -> integer
         let read_i8_fn = lua
-            .create_function(|_, (bytes, offset): (mlua::String, usize)| {
+            .create_function(|_, (bytes, offset): (mlua::LuaString, usize)| {
                 let data = bytes.as_bytes();
                 if offset < 1 || offset > data.len() {
                     return Err(mlua::Error::RuntimeError(format!(
@@ -52,7 +52,7 @@ impl LuaFunctionRegistrar for MessageLuaHelper {
 
         // read_u16_be(bytes, offset) -> integer
         let read_u16_be_fn = lua
-            .create_function(|_, (bytes, offset): (mlua::String, usize)| {
+            .create_function(|_, (bytes, offset): (mlua::LuaString, usize)| {
                 let data = bytes.as_bytes();
                 if offset < 1 || offset + 1 > data.len() {
                     return Err(mlua::Error::RuntimeError(format!(
@@ -72,7 +72,7 @@ impl LuaFunctionRegistrar for MessageLuaHelper {
 
         // read_u16_le(bytes, offset) -> integer
         let read_u16_le_fn = lua
-            .create_function(|_, (bytes, offset): (mlua::String, usize)| {
+            .create_function(|_, (bytes, offset): (mlua::LuaString, usize)| {
                 let data = bytes.as_bytes();
                 if offset < 1 || offset + 1 > data.len() {
                     return Err(mlua::Error::RuntimeError(format!(
@@ -92,7 +92,7 @@ impl LuaFunctionRegistrar for MessageLuaHelper {
 
         // read_i16_be(bytes, offset) -> integer
         let read_i16_be_fn = lua
-            .create_function(|_, (bytes, offset): (mlua::String, usize)| {
+            .create_function(|_, (bytes, offset): (mlua::LuaString, usize)| {
                 let data = bytes.as_bytes();
                 if offset < 1 || offset + 1 > data.len() {
                     return Err(mlua::Error::RuntimeError(format!(
@@ -112,7 +112,7 @@ impl LuaFunctionRegistrar for MessageLuaHelper {
 
         // read_i16_le(bytes, offset) -> integer
         let read_i16_le_fn = lua
-            .create_function(|_, (bytes, offset): (mlua::String, usize)| {
+            .create_function(|_, (bytes, offset): (mlua::LuaString, usize)| {
                 let data = bytes.as_bytes();
                 if offset < 1 || offset + 1 > data.len() {
                     return Err(mlua::Error::RuntimeError(format!(
@@ -132,7 +132,7 @@ impl LuaFunctionRegistrar for MessageLuaHelper {
 
         // read_u32_be(bytes, offset) -> integer
         let read_u32_be_fn = lua
-            .create_function(|_, (bytes, offset): (mlua::String, usize)| {
+            .create_function(|_, (bytes, offset): (mlua::LuaString, usize)| {
                 let data = bytes.as_bytes();
                 if offset < 1 || offset + 3 > data.len() {
                     return Err(mlua::Error::RuntimeError(format!(
@@ -153,7 +153,7 @@ impl LuaFunctionRegistrar for MessageLuaHelper {
 
         // read_u32_le(bytes, offset) -> integer
         let read_u32_le_fn = lua
-            .create_function(|_, (bytes, offset): (mlua::String, usize)| {
+            .create_function(|_, (bytes, offset): (mlua::LuaString, usize)| {
                 let data = bytes.as_bytes();
                 if offset < 1 || offset + 3 > data.len() {
                     return Err(mlua::Error::RuntimeError(format!(
@@ -174,7 +174,7 @@ impl LuaFunctionRegistrar for MessageLuaHelper {
 
         // read_i32_be(bytes, offset) -> integer
         let read_i32_be_fn = lua
-            .create_function(|_, (bytes, offset): (mlua::String, usize)| {
+            .create_function(|_, (bytes, offset): (mlua::LuaString, usize)| {
                 let data = bytes.as_bytes();
                 if offset < 1 || offset + 3 > data.len() {
                     return Err(mlua::Error::RuntimeError(format!(
@@ -195,7 +195,7 @@ impl LuaFunctionRegistrar for MessageLuaHelper {
 
         // read_i32_le(bytes, offset) -> integer
         let read_i32_le_fn = lua
-            .create_function(|_, (bytes, offset): (mlua::String, usize)| {
+            .create_function(|_, (bytes, offset): (mlua::LuaString, usize)| {
                 let data = bytes.as_bytes();
                 if offset < 1 || offset + 3 > data.len() {
                     return Err(mlua::Error::RuntimeError(format!(
@@ -216,7 +216,7 @@ impl LuaFunctionRegistrar for MessageLuaHelper {
 
         // read_float_be(bytes, offset) -> number (f32)
         let read_float_be_fn = lua
-            .create_function(|_, (bytes, offset): (mlua::String, usize)| {
+            .create_function(|_, (bytes, offset): (mlua::LuaString, usize)| {
                 let data = bytes.as_bytes();
                 if offset < 1 || offset + 3 > data.len() {
                     return Err(mlua::Error::RuntimeError(format!(
@@ -237,7 +237,7 @@ impl LuaFunctionRegistrar for MessageLuaHelper {
 
         // read_float_le(bytes, offset) -> number (f32)
         let read_float_le_fn = lua
-            .create_function(|_, (bytes, offset): (mlua::String, usize)| {
+            .create_function(|_, (bytes, offset): (mlua::LuaString, usize)| {
                 let data = bytes.as_bytes();
                 if offset < 1 || offset + 3 > data.len() {
                     return Err(mlua::Error::RuntimeError(format!(
@@ -258,7 +258,7 @@ impl LuaFunctionRegistrar for MessageLuaHelper {
 
         // read_double_be(bytes, offset) -> number (f64)
         let read_double_be_fn = lua
-            .create_function(|_, (bytes, offset): (mlua::String, usize)| {
+            .create_function(|_, (bytes, offset): (mlua::LuaString, usize)| {
                 let data = bytes.as_bytes();
                 if offset < 1 || offset + 7 > data.len() {
                     return Err(mlua::Error::RuntimeError(format!(
@@ -287,7 +287,7 @@ impl LuaFunctionRegistrar for MessageLuaHelper {
 
         // read_double_le(bytes, offset) -> number (f64)
         let read_double_le_fn = lua
-            .create_function(|_, (bytes, offset): (mlua::String, usize)| {
+            .create_function(|_, (bytes, offset): (mlua::LuaString, usize)| {
                 let data = bytes.as_bytes();
                 if offset < 1 || offset + 7 > data.len() {
                     return Err(mlua::Error::RuntimeError(format!(

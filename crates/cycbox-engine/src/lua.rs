@@ -328,7 +328,7 @@ impl LuaScript {
             lua.create_async_function(
                 move |_lua,
                       (payload, delay_ms, connection_id): (
-                    Option<mlua::String>,
+                    Option<mlua::LuaString>,
                     u64,
                     Option<u32>,
                 )| {
