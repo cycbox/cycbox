@@ -4,10 +4,10 @@ use crate::state::EngineState;
 use crate::tasks::start_engine_task;
 use async_trait::async_trait;
 use cycbox_sdk::lua::LuaEngine;
-use cycbox_sdk::message::UNKNOW_CONNECTION_ID;
+use cycbox_sdk::message::{SYSTEM_CONNECTION_ID, UNKNOW_CONNECTION_ID};
 use cycbox_sdk::{
     Color, Content, ContentType, Decoration, MESSAGE_TYPE_LOG, Manifest, Message, MessageBuilder,
-    RunMode, Value,
+    NoticeLevel, RunMode, TransportNotice, Value,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -45,6 +45,16 @@ impl LogLevel {
             LogLevel::Warning => "WARN",
             LogLevel::Error => "ERROR",
             LogLevel::Debug => "DEBUG",
+        }
+    }
+}
+
+impl From<NoticeLevel> for LogLevel {
+    fn from(level: NoticeLevel) -> Self {
+        match level {
+            NoticeLevel::Info => LogLevel::Info,
+            NoticeLevel::Warning => LogLevel::Warning,
+            NoticeLevel::Error => LogLevel::Error,
         }
     }
 }
@@ -201,7 +211,16 @@ impl Engine {
 
     /// Format a log message and broadcast it as a `MESSAGE_TYPE_LOG` message to all subscribers.
     /// Debug-level messages are suppressed unless `is_debug` is `true`.
+    ///
+    /// The log is attributed to the system connection; use [`log_for`] to tie
+    /// it to a specific connection instead.
     pub fn log(&self, level: LogLevel, message: &str) {
+        self.log_for(SYSTEM_CONNECTION_ID, level, message);
+    }
+
+    /// Same as [`log`], but attributes the log line to `connection_id` so the
+    /// UI can tell which connection produced it.
+    pub fn log_for(&self, connection_id: u32, level: LogLevel, message: &str) {
         if matches!(level, LogLevel::Debug) && !self.is_debug {
             return;
         }
@@ -222,6 +241,7 @@ impl Engine {
         };
         let msg = MessageBuilder::new()
             .message_type(MESSAGE_TYPE_LOG)
+            .connection_id(connection_id)
             .contents(vec![content])
             .build();
         self.broadcast(msg);
@@ -400,6 +420,13 @@ impl EngineRef {
 
     pub(crate) fn error(&self, message: &str) {
         self.0.log(LogLevel::Error, message);
+    }
+
+    /// Broadcast a transport lifecycle notice as a log line attributed to the
+    /// connection that produced it.
+    pub(crate) fn notice(&self, connection_id: u32, notice: TransportNotice) {
+        self.0
+            .log_for(connection_id, notice.level.into(), &notice.text);
     }
 }
 

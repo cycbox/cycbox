@@ -23,6 +23,58 @@ pub struct RawByteObserver {
     pub rx: mpsc::Sender<RawBytes>,
 }
 
+/// Severity of a [`TransportNotice`]. Maps onto the engine's log levels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoticeLevel {
+    Info,
+    Warning,
+    Error,
+}
+
+/// A transport-level lifecycle event that the user should see — a server
+/// accepting or losing a client, a rejected handshake, and so on.
+///
+/// Notices are *not* protocol data: they carry no frame and never pass through
+/// the codec, the transformer, or the Lua `on_receive` hook. The connection
+/// task turns them into `MESSAGE_TYPE_LOG` messages tagged with the owning
+/// connection id and broadcasts them straight to subscribers.
+#[derive(Debug, Clone)]
+pub struct TransportNotice {
+    pub level: NoticeLevel,
+    pub text: String,
+}
+
+/// Bounded sink a transport uses to report [`TransportNotice`]s.
+///
+/// Sending never blocks and never fails the caller — a full channel drops the
+/// notice — so the helpers below are safe to call from inside `poll_read` /
+/// `poll_write` as well as from async code.
+#[derive(Clone)]
+pub struct TransportNoticeSender {
+    pub tx: mpsc::Sender<TransportNotice>,
+}
+
+impl TransportNoticeSender {
+    pub fn send(&self, level: NoticeLevel, text: impl Into<String>) {
+        let _ = self.tx.try_send(TransportNotice {
+            level,
+            text: text.into(),
+        });
+    }
+
+    pub fn info(&self, text: impl Into<String>) {
+        self.send(NoticeLevel::Info, text);
+    }
+
+    pub fn warn(&self, text: impl Into<String>) {
+        self.send(NoticeLevel::Warning, text);
+    }
+
+    pub fn error(&self, text: impl Into<String>) {
+        self.send(NoticeLevel::Error, text);
+    }
+}
+
 #[async_trait]
 pub trait Transport: Manifestable + Send + Sync {
     /// Connect to the transport with the given configurations and codec.
@@ -60,6 +112,14 @@ pub trait TransportIO: AsyncRead + AsyncWrite + Send + Unpin {
     fn take_session_boundary(&mut self) -> bool {
         false
     }
+
+    /// Install the sink this transport reports lifecycle notices on (client
+    /// connected / disconnected, rejected handshake, …). `CodecTransport`
+    /// forwards the connection task's sender down here. Pass `None` to detach.
+    ///
+    /// Default no-op; only server-style transports with a client lifecycle
+    /// need to override it.
+    fn set_notice_sender(&mut self, _sender: Option<TransportNoticeSender>) {}
 
     /// Cooperatively tear the transport down. Implementations should release
     /// any OS handles, terminate background bridge tasks, and `await` until
@@ -99,6 +159,12 @@ pub trait MessageTransport: Send + Unpin {
     /// (pre-decode for RX, post-encode for TX). Default no-op; only stream-based
     /// transports backed by `CodecTransport` honour this. Pass `None` to detach.
     fn set_raw_observer(&mut self, _observer: Option<RawByteObserver>) {}
+
+    /// Install the sink this transport reports lifecycle notices on. See
+    /// [`TransportIO::set_notice_sender`]; message-based transports (WebSocket
+    /// server, MQTT, …) implement this directly, while `CodecTransport`
+    /// forwards it to the byte-stream transport it wraps.
+    fn set_notice_sender(&mut self, _sender: Option<TransportNoticeSender>) {}
 
     /// Cooperatively tear the transport down, awaiting any in-flight cleanup
     /// (background bridge tasks, remote disconnect handshakes, etc.). Called
@@ -321,6 +387,10 @@ impl MessageTransport for CodecTransport {
 
     fn set_raw_observer(&mut self, observer: Option<RawByteObserver>) {
         self.raw_observer = observer;
+    }
+
+    fn set_notice_sender(&mut self, sender: Option<TransportNoticeSender>) {
+        self.transport.set_notice_sender(sender);
     }
 
     async fn close(&mut self) {
