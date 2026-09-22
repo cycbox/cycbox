@@ -26,10 +26,23 @@ const RAW_OBSERVER_BUF: usize = 256;
 /// Bound for the transport-notice channel. Notices are client lifecycle
 /// events, so a handful in flight is already generous.
 const NOTICE_BUF: usize = 32;
+/// Wait after a failure the transport told us not to retry soon
+/// (`CycBoxError::ConnectionBackoff`), plus a random share of `SLOW_BACKOFF_JITTER`.
+///
+/// The case these are sized for is two app instances pointed at one p2p node that serves
+/// a single client: each one's arrival kicks the other, so with the ordinary 1 s backoff
+/// they take the node from each other twice a second forever and neither is usable. A
+/// wait long enough for the other instance to get real work done is the only thing that
+/// breaks it.
+const SLOW_BACKOFF: Duration = Duration::from_secs(30);
+const SLOW_BACKOFF_JITTER: Duration = Duration::from_secs(15);
 
 enum DrainOutcome {
     Idle,
     Reconnect,
+    /// Reconnect, but wait out [`slow_backoff`] first — the transport reported a failure
+    /// that will repeat if it is retried in a second.
+    ReconnectSlowly,
 }
 
 pub(crate) fn start_connection(
@@ -100,9 +113,12 @@ pub(crate) fn start_connection(
                 Ok(t) => t,
                 Err(e) => {
                     // Only reconnect for IO/connection failures; config errors are fatal
-                    if matches!(e, CycBoxError::Connection(_)) {
+                    if e.is_reconnectable() {
+                        if e.wants_slow_retry() {
+                            backoff = slow_backoff();
+                        }
                         warn!("Connection {connection_id} transport connection error: {e}, reconnecting...");
-                        engine.warn(&format!("Connection {connection_id} transport error: {e}, reconnecting..."));
+                        engine.warn(&format!("Connection {connection_id} transport error: {e}, retrying in {:?}...", backoff));
                         reconnecting = true;
                         continue;
                     } else {
@@ -151,6 +167,10 @@ pub(crate) fn start_connection(
             // request is awaiting its response).
             let mut pending_outbox: VecDeque<Message> = VecDeque::new();
             let mut outbox_warned = false;
+            // Set when the failure that ends this session is one the transport said not
+            // to retry soon. Read once, below the RX/TX loop, because every path out of
+            // that loop is a `break` and the backoff is applied at the top of `'outer`.
+            let mut slow_retry = false;
             let mut retry_interval = tokio::time::interval(OUTBOX_RETRY_INTERVAL);
             retry_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
@@ -171,12 +191,13 @@ pub(crate) fn start_connection(
                                 engine.receive_message(msg).await;
                                 // A successful decode typically clears the codec's pending
                                 // state, so try to drain the next queued message.
-                                if matches!(
-                                    drain_outbox(&mut pending_outbox, &mut connection, &engine, connection_id).await,
-                                    DrainOutcome::Reconnect
-                                ) {
-                                    reconnecting = true;
-                                    break;
+                                match drain_outbox(&mut pending_outbox, &mut connection, &engine, connection_id).await {
+                                    DrainOutcome::Idle => {}
+                                    outcome => {
+                                        slow_retry = matches!(outcome, DrainOutcome::ReconnectSlowly);
+                                        reconnecting = true;
+                                        break;
+                                    }
                                 }
                             }
                             Ok(None) => {
@@ -185,7 +206,10 @@ pub(crate) fn start_connection(
                                 break;
                             }
                             Err(e) => {
-                                if matches!(e, CycBoxError::Connection(_)) {
+                                if e.is_reconnectable() {
+                                    if e.wants_slow_retry() {
+                                        slow_retry = true;
+                                    }
                                     engine.warn(&format!("Connection {connection_id} recv error: {e}, reconnecting..."));
                                     reconnecting = true;
                                     break;
@@ -215,7 +239,10 @@ pub(crate) fn start_connection(
                                     engine.warn(&format!("Connection {connection_id} send discarded: {reason}"));
                                 }
                                 Err(e) => {
-                                    if matches!(e, CycBoxError::Connection(_)) {
+                                    if e.is_reconnectable() {
+                                        if e.wants_slow_retry() {
+                                            slow_retry = true;
+                                        }
                                         engine.warn(&format!("Connection {connection_id} send error: {e}, reconnecting..."));
                                         reconnecting = true;
                                         break;
@@ -235,26 +262,28 @@ pub(crate) fn start_connection(
                                 connection_id,
                                 &mut outbox_warned,
                             );
-                            if matches!(
-                                drain_outbox(&mut pending_outbox, &mut connection, &engine, connection_id).await,
-                                DrainOutcome::Reconnect
-                            ) {
-                                reconnecting = true;
-                                break;
+                            match drain_outbox(&mut pending_outbox, &mut connection, &engine, connection_id).await {
+                                DrainOutcome::Idle => {}
+                                outcome => {
+                                    slow_retry = matches!(outcome, DrainOutcome::ReconnectSlowly);
+                                    reconnecting = true;
+                                    break;
+                                }
                             }
                         }
                     }
                     _ = retry_interval.tick() => {
                         // Periodic drain handles the case where the codec clears its
                         // pending state via timeout (no response decoded).
-                        if !pending_outbox.is_empty()
-                            && matches!(
-                                drain_outbox(&mut pending_outbox, &mut connection, &engine, connection_id).await,
-                                DrainOutcome::Reconnect
-                            )
-                        {
-                            reconnecting = true;
-                            break;
+                        if !pending_outbox.is_empty() {
+                            match drain_outbox(&mut pending_outbox, &mut connection, &engine, connection_id).await {
+                                DrainOutcome::Idle => {}
+                                outcome => {
+                                    slow_retry = matches!(outcome, DrainOutcome::ReconnectSlowly);
+                                    reconnecting = true;
+                                    break;
+                                }
+                            }
                         }
                     }
                     Some((cmd, resp_sender)) = command_receiver.recv() => {
@@ -285,6 +314,20 @@ pub(crate) fn start_connection(
                     pending_outbox.len()
                 ));
                 pending_outbox.clear();
+            }
+
+            // The session that just ended failed in a way the transport says will repeat
+            // — a p2p node handing itself to another client, typically. Reconnecting in a
+            // second would take it straight back off them and start the fight again, so
+            // wait long enough for the other side to be worth something, and say so: a
+            // minutes-long silence with no explanation looks exactly like a broken app.
+            if slow_retry {
+                backoff = slow_backoff();
+                engine.warn(&format!(
+                    "Connection {connection_id} will not retry for {:?} — the last failure \
+                     would repeat immediately",
+                    backoff
+                ));
             }
         }
     })
@@ -342,16 +385,45 @@ async fn drain_outbox(
             DrainOutcome::Idle
         }
         Err(e) => {
-            if matches!(e, CycBoxError::Connection(_)) {
+            if e.is_reconnectable() {
                 outbox.push_front(msg);
                 engine.warn(&format!(
                     "Connection {connection_id} retry send error: {e}, reconnecting..."
                 ));
-                DrainOutcome::Reconnect
+                if e.wants_slow_retry() {
+                    DrainOutcome::ReconnectSlowly
+                } else {
+                    DrainOutcome::Reconnect
+                }
             } else {
                 engine.error(&format!("Connection {connection_id} retry send error: {e}"));
                 DrainOutcome::Idle
             }
         }
     }
+}
+
+/// The wait to use after a failure the transport said would repeat.
+///
+/// **Jitter is the load-bearing part, not the length.** Two app instances kicking each
+/// other off one node fail at the same moment and would otherwise wake at the same moment
+/// too, forever — a fixed delay only makes the fight slower, it does not end it. A random
+/// spread means one of them gets a clear run.
+///
+/// **Flat rather than escalating, deliberately.** The outcome this produces is the pair
+/// alternating: one works for half a minute, the other takes over, and so on, with the log
+/// saying why each pause happened. An escalating backoff would instead starve whichever
+/// instance lost first, which is worse for the case that actually happens — somebody
+/// leaving an app open on another machine.
+///
+/// The randomness comes from the clock rather than from a `rand` dependency: this is a
+/// tie-breaker between two processes, not a security primitive, and the two do not fail in
+/// the same nanosecond.
+fn slow_backoff() -> Duration {
+    let spread = SLOW_BACKOFF_JITTER.as_millis() as u64;
+    let jitter = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| u64::from(d.subsec_nanos()) % spread)
+        .unwrap_or(0);
+    SLOW_BACKOFF + Duration::from_millis(jitter)
 }

@@ -15,6 +15,12 @@ pub enum CycBoxError {
     #[error("Connection failed: {0}")]
     Connection(String),
 
+    /// Like [`CycBoxError::Connection`] — the connection task reconnects — but the
+    /// transport knows that retrying *soon* cannot work, so the usual 1 s backoff is
+    /// replaced with a much longer, jittered one.
+    #[error("Connection failed (retrying later): {0}")]
+    ConnectionBackoff(String),
+
     /// Message was not delivered, but the transport is still healthy and the
     /// connection task should NOT reconnect. Typical case: a server-style
     /// transport that currently has no peer attached. The connection task
@@ -48,4 +54,18 @@ pub enum CycBoxError {
 
     #[error("{0}")]
     Other(String),
+}
+
+impl CycBoxError {
+    /// True for the errors the connection task answers by reconnecting, rather than by
+    /// giving up.
+    pub fn is_reconnectable(&self) -> bool {
+        matches!(self, Self::Connection(_) | Self::ConnectionBackoff(_))
+    }
+
+    /// True when reconnecting immediately is known to be futile and the caller should wait
+    /// out a long backoff instead. See [`Self::ConnectionBackoff`].
+    pub fn wants_slow_retry(&self) -> bool {
+        matches!(self, Self::ConnectionBackoff(_))
+    }
 }

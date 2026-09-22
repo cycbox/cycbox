@@ -75,6 +75,21 @@ impl TransportNoticeSender {
     }
 }
 
+/// A byte-stream transport's report that the failure it just produced will repeat if it
+/// is retried straight away.
+#[derive(Debug, Clone)]
+pub struct RetryLater {
+    pub reason: String,
+}
+
+impl RetryLater {
+    pub fn new(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+        }
+    }
+}
+
 #[async_trait]
 pub trait Transport: Manifestable + Send + Sync {
     /// Connect to the transport with the given configurations and codec.
@@ -111,6 +126,20 @@ pub trait TransportIO: AsyncRead + AsyncWrite + Send + Unpin {
     /// Default returns `false` for transports without session boundaries
     fn take_session_boundary(&mut self) -> bool {
         false
+    }
+
+    /// Returns (and clears) an explanation for the failure this transport has just
+    /// produced, when retrying it soon is known to be futile.
+    ///
+    /// `CodecTransport` consults this after a read or write fails, and after an EOF, and
+    /// turns a `Some` into [`CycBoxError::ConnectionBackoff`] instead of
+    /// [`CycBoxError::Connection`]. The connection task still reconnects; it just waits
+    /// much longer first.
+    ///
+    /// Default returns `None`, which is the right answer for every transport whose
+    /// failures are all plain network failures.
+    fn take_retry_hint(&mut self) -> Option<RetryLater> {
+        None
     }
 
     /// Install the sink this transport reports lifecycle notices on (client
@@ -211,6 +240,14 @@ impl CodecTransport {
             raw_observer: None,
         }
     }
+
+    /// Wraps a transport failure as the error the connection task should act on.
+    fn connection_error(&mut self, cause: impl std::fmt::Display) -> CycBoxError {
+        match self.transport.take_retry_hint() {
+            Some(hint) => CycBoxError::ConnectionBackoff(format!("{}: {cause}", hint.reason)),
+            None => CycBoxError::Connection(cause.to_string()),
+        }
+    }
 }
 
 #[async_trait]
@@ -245,8 +282,14 @@ impl MessageTransport for CodecTransport {
                     self.codec.reset();
                     self.buffer.clear();
 
-                    // Return any decoded message, or None for EOF
-                    return Ok(self.pending_messages.pop_front());
+                    // Return any decoded message first.
+                    if let Some(msg) = self.pending_messages.pop_front() {
+                        return Ok(Some(msg));
+                    }
+                    return match self.transport.take_retry_hint() {
+                        Some(hint) => Err(CycBoxError::ConnectionBackoff(hint.reason)),
+                        None => Ok(None),
+                    };
                 }
                 Ok(Ok(n)) => {
                     // Surface raw bytes before any decode work runs — this guarantees
@@ -309,7 +352,7 @@ impl MessageTransport for CodecTransport {
                     }
                     // continue loop to read more
                 }
-                Ok(Err(e)) => return Err(CycBoxError::Connection(e.to_string())),
+                Ok(Err(e)) => return Err(self.connection_error(e)),
                 Err(_) => {
                     // Honour a session boundary observed during the idle
                     // window: drain final frame, then reset codec/buffer.
@@ -348,17 +391,17 @@ impl MessageTransport for CodecTransport {
             message.frame = message.payload.clone();
         }
         if !message.frame.is_empty() {
-            self.transport.write_all(&message.frame).await.map_err(|e| {
+            if let Err(e) = self.transport.write_all(&message.frame).await {
                 // `NotConnected` is the agreed signal from server-style
                 // transports (e.g. p2p server with no active client) that the
                 // bytes should be discarded but the transport stays alive. All
                 // other IO errors still mean "real connection failure" and
                 // trigger the connection task's reconnect path.
-                match e.kind() {
+                return Err(match e.kind() {
                     std::io::ErrorKind::NotConnected => CycBoxError::Discarded(e.to_string()),
-                    _ => CycBoxError::Connection(e.to_string()),
-                }
-            })?;
+                    _ => self.connection_error(e),
+                });
+            }
         }
         Ok(())
     }

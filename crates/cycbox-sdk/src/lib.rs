@@ -37,6 +37,7 @@ pub use error::CycBoxError;
 pub use run_mode::RunMode;
 pub use transformer::Transformer;
 pub use transport::{
-    MessageTransport, NoticeLevel, RawByteObserver, RawBytes, TransportIO, TransportNotice,
+    MessageTransport, NoticeLevel, RawByteObserver, RawBytes, RetryLater, TransportIO,
+    TransportNotice,
     TransportNoticeSender,
 };

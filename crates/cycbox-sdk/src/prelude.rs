@@ -11,7 +11,8 @@ pub use crate::error::CycBoxError;
 pub use crate::manifest::{Configurable, Manifestable};
 pub use crate::transformer::Transformer;
 pub use crate::transport::{
-    CodecTransport, MessageTransport, NoticeLevel, RawByteObserver, RawBytes, Transport,
+    CodecTransport, MessageTransport, NoticeLevel, RawByteObserver, RawBytes, RetryLater,
+    Transport,
     TransportIO, TransportNotice, TransportNoticeSender,
 };
 
