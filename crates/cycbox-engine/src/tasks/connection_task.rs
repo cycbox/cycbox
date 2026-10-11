@@ -1,14 +1,15 @@
-use crate::connection::Connection;
+use crate::connection::{Connection, Sent};
 use crate::engine::EngineRef;
 use crate::formatter::get_encoding_from_name;
 use cycbox_sdk::manifest::FormUtils;
 use cycbox_sdk::prelude::*;
+use cycbox_sdk::transport::LOG_LEVEL_VALUE_ID;
 use log::warn;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::Receiver;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
@@ -20,12 +21,10 @@ const MAX_OUTBOX_LEN: usize = 64;
 const OUTBOX_WARN_THRESHOLD: usize = 8;
 /// Retry interval for draining queued outbound messages.
 const OUTBOX_RETRY_INTERVAL: Duration = Duration::from_millis(100);
-/// Bound for the raw-byte observation channel between `CodecTransport` and
-/// the connection task.
-const RAW_OBSERVER_BUF: usize = 256;
-/// Bound for the transport-notice channel. Notices are client lifecycle
-/// events, so a handful in flight is already generous.
-const NOTICE_BUF: usize = 32;
+/// Bound for the per-connection transport sink. It carries raw RX chunks (connection 0
+/// only) as well as logs and events, so it is sized for a read burst; overflow is
+/// dropped, counted, and reported as one warning line.
+const SINK_BUF: usize = 1024;
 /// Wait after a failure the transport told us not to retry soon
 /// (`CycBoxError::ConnectionBackoff`), plus a random share of `SLOW_BACKOFF_JITTER`.
 ///
@@ -77,6 +76,11 @@ pub(crate) fn start_connection(
             .unwrap_or_else(|| get_encoding_from_name("utf-8"));
         let timeout = FormUtils::get_receive_timeout(&config);
 
+        // One sink for the life of this connection, across reconnects, so a transport's
+        // background tasks can report from inside `connect`. Raw RX is only wanted for
+        // connection 0, which the UI's raw view shows.
+        let (sink, mut sink_receiver) = TransportSink::new(SINK_BUF, connection_id == 0);
+
         // Reconnection loop with exponential backoff
         let mut backoff = Duration::from_secs(1);
         let max_backoff = Duration::from_secs(10);
@@ -87,11 +91,20 @@ pub(crate) fn start_connection(
                 break;
             }
 
-            // Apply backoff delay (skip on first attempt)
+            // Apply backoff delay (skip on first attempt). The sink keeps being read
+            // meanwhile: a slow backoff lasts minutes, and whatever the last session said
+            // on its way down belongs before the next "established" line, not after it.
             if reconnecting {
-                tokio::select! {
-                    _ = ctx.cancelled() => break,
-                    _ = tokio::time::sleep(backoff) => {}
+                let wake = tokio::time::sleep(backoff);
+                tokio::pin!(wake);
+                loop {
+                    tokio::select! {
+                        _ = ctx.cancelled() => break 'outer,
+                        _ = &mut wake => break,
+                        Some(msg) = sink_receiver.recv() => {
+                            handle_sink_message(&engine, connection_id, &sink, msg).await;
+                        }
+                    }
                 }
                 backoff = (backoff * 2).min(max_backoff);
             }
@@ -107,11 +120,19 @@ pub(crate) fn start_connection(
 
             // Create transport
             let transport = match run_mode
-                .create_transport(&transport_id, &config, codec, timeout)
+                .create_transport(
+                    &transport_id,
+                    &config,
+                    codec,
+                    TransportContext::new(sink.clone(), timeout),
+                )
                 .await
             {
                 Ok(t) => t,
                 Err(e) => {
+                    // What the transport reported while failing explains the failure, so
+                    // it goes out before the line that announces it.
+                    drain_sink(&engine, connection_id, &sink, &mut sink_receiver).await;
                     // Only reconnect for IO/connection failures; config errors are fatal
                     if e.is_reconnectable() {
                         if e.wants_slow_retry() {
@@ -145,22 +166,6 @@ pub(crate) fn start_connection(
             backoff = Duration::from_secs(1);
 
             let mut connection = Connection::new(connection_id, transport, transformer, encoding);
-
-            // Bounded raw-byte observer channel. `CodecTransport` notifies this
-            // with every chunk read from the underlying byte stream.
-            let (raw_rx_sender, mut raw_rx_receiver) =
-                mpsc::channel::<RawBytes>(RAW_OBSERVER_BUF);
-            if connection_id == 0 {
-                connection.set_raw_observer(Some(RawByteObserver {
-                    rx: raw_rx_sender,
-                }));
-            }
-
-            // Transport lifecycle notices. Delivered straight
-            // to the log stream, never through the RX pipeline.
-            let (notice_sender, mut notice_receiver) =
-                mpsc::channel::<TransportNotice>(NOTICE_BUF);
-            connection.set_notice_sender(Some(TransportNoticeSender { tx: notice_sender }));
 
             // Per-connection outbox for messages deferred by codec back-pressure
             // (e.g. half-duplex Modbus RTU returning `CycBoxError::Pending` while a
@@ -223,7 +228,7 @@ pub(crate) fn start_connection(
                         if pending_outbox.is_empty() {
                             // Fast path: try to send immediately.
                             match connection.send(msg.clone()).await {
-                                Ok(tx_msg) => engine.send_confirm(tx_msg).await,
+                                Ok(sent) => report_sent(&engine, connection_id, sent).await,
                                 Err(CycBoxError::Pending(_)) => {
                                     enqueue_outbox(
                                         msg,
@@ -290,20 +295,17 @@ pub(crate) fn start_connection(
                         let response = connection.handle_command(&cmd).await;
                         let _ = resp_sender.send(response);
                     }
-                    Some(notice) = notice_receiver.recv() => {
-                        engine.notice(connection_id, notice);
-                    }
-                    Some(raw) = raw_rx_receiver.recv() => {
-                        let msg = MessageBuilder::new()
-                            .message_type(MESSAGE_TYPE_RAW_RX)
-                            .connection_id(connection_id)
-                            .timestamp(raw.timestamp)
-                            .frame(raw.bytes)
-                            .build();
-                        engine.broadcast(msg);
+                    Some(msg) = sink_receiver.recv() => {
+                        handle_sink_message(&engine, connection_id, &sink, msg).await;
                     }
                 }
             }
+
+            // Drop the transport first, so whatever it reports while going away (a server's
+            // last `client_disconnected`) is in the sink, then hand all of it on now rather
+            // than after the next session is up.
+            drop(connection);
+            drain_sink(&engine, connection_id, &sink, &mut sink_receiver).await;
 
             // Drop any messages still queued for this (now-dead) connection. Re-sending
             // them after reconnect is unsafe — device request/response state is unknown
@@ -330,6 +332,10 @@ pub(crate) fn start_connection(
                 ));
             }
         }
+
+        // Stop, or a fatal error: the transport is gone, and what it said last still goes
+        // out (Stop swaps in an empty Lua script first, so a late event is only broadcast).
+        drain_sink(&engine, connection_id, &sink, &mut sink_receiver).await;
     })
 }
 
@@ -368,8 +374,8 @@ async fn drain_outbox(
     // Clone before send so transformer/codec mutations on the in-flight copy
     // don't taint the queued original if we have to retry.
     match connection.send(msg.clone()).await {
-        Ok(tx_msg) => {
-            engine.send_confirm(tx_msg).await;
+        Ok(sent) => {
+            report_sent(engine, connection_id, sent).await;
             DrainOutcome::Idle
         }
         Err(CycBoxError::Pending(_)) => {
@@ -400,6 +406,93 @@ async fn drain_outbox(
                 DrainOutcome::Idle
             }
         }
+    }
+}
+
+/// Route one message a transport pushed on its sink, stamped with the connection id:
+/// `LOG` → a log line, `EVENT` → the Lua `on_event` hook then broadcast, anything else
+/// (`RAW_RX`) → broadcast. Then report anything the sink had to drop.
+async fn handle_sink_message(
+    engine: &EngineRef,
+    connection_id: u32,
+    sink: &TransportSink,
+    mut msg: Message,
+) {
+    msg.connection_id = connection_id;
+    match msg.message_type.as_str() {
+        MESSAGE_TYPE_LOG => {
+            let level = msg
+                .get_value(LOG_LEVEL_VALUE_ID)
+                .and_then(|v| v.as_string())
+                .and_then(|l| LogLevel::parse(&l))
+                .unwrap_or(LogLevel::Info);
+            engine.log_for(connection_id, level, &String::from_utf8_lossy(&msg.payload));
+        }
+        MESSAGE_TYPE_EVENT => engine.transport_event(msg).await,
+        _ => engine.broadcast(msg),
+    }
+    let dropped = sink.take_dropped();
+    if dropped > 0 {
+        engine.warn(&format!(
+            "Connection {connection_id} dropped {dropped} transport message(s): sink full"
+        ));
+    }
+}
+
+/// Hand on everything already in the sink, without waiting for more. For the moments
+/// the RX/TX loop is not running to read it: after a failed connect and after a session
+/// ends.
+async fn drain_sink(
+    engine: &EngineRef,
+    connection_id: u32,
+    sink: &TransportSink,
+    receiver: &mut Receiver<Message>,
+) {
+    while let Ok(msg) = receiver.try_recv() {
+        handle_sink_message(engine, connection_id, sink, msg).await;
+    }
+}
+
+/// Act on what [`Connection::send`] did: confirm TX data, or log the outcome of a
+/// `REQUEST` command (D8). Whatever else a command wants Lua and the UI to see, the
+/// transport reports as an `EVENT` on its sink.
+async fn report_sent(engine: &EngineRef, connection_id: u32, sent: Sent) {
+    match sent {
+        Sent::Tx(tx_msg) => engine.send_confirm(tx_msg).await,
+        Sent::Command {
+            command,
+            response: Some(response),
+        } => {
+            let success = response
+                .metadata_value("success")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if success {
+                engine.log_for(
+                    connection_id,
+                    LogLevel::Info,
+                    &format!("Connection {connection_id} command '{command}' succeeded"),
+                );
+            } else {
+                let error = response
+                    .metadata_value("error")
+                    .and_then(|v| v.as_string())
+                    .unwrap_or_else(|| "unknown error".to_string());
+                engine.log_for(
+                    connection_id,
+                    LogLevel::Warning,
+                    &format!("Connection {connection_id} command '{command}' failed: {error}"),
+                );
+            }
+        }
+        Sent::Command {
+            command,
+            response: None,
+        } => engine.log_for(
+            connection_id,
+            LogLevel::Warning,
+            &format!("Connection {connection_id} has no handler for command '{command}'"),
+        ),
     }
 }
 

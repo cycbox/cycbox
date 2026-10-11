@@ -2,6 +2,18 @@ use crate::formatter::{format_hexdump, format_terminal};
 use cycbox_sdk::prelude::*;
 use log::debug;
 
+/// What [`Connection::send`] did with a message.
+pub(crate) enum Sent {
+    /// TX data went out; the confirmation for the Lua `on_send_confirm` hook.
+    Tx(Message),
+    /// A `REQUEST` went to the transport's command handler instead of the codec (D8).
+    /// `None` means nothing on this connection handles that command.
+    Command {
+        command: String,
+        response: Option<Message>,
+    },
+}
+
 /// Unified connection wrapping a `MessageTransport` with transformer, encoding,
 /// and highlight state. Handles both codec-based (byte-stream) and native
 /// message transports through the common `MessageTransport` trait.
@@ -27,16 +39,6 @@ impl Connection {
             encoding,
             highlight_bytes: None,
         }
-    }
-
-    /// Install raw-byte observers on the underlying transport.
-    pub fn set_raw_observer(&mut self, observer: Option<RawByteObserver>) {
-        self.transport.set_raw_observer(observer);
-    }
-
-    /// Install the sink the transport reports lifecycle notices on.
-    pub fn set_notice_sender(&mut self, sender: Option<TransportNoticeSender>) {
-        self.transport.set_notice_sender(sender);
     }
 
     /// Receive a message from the transport, apply transformer and formatting,
@@ -76,7 +78,21 @@ impl Connection {
 
     /// Send a message through the transport, applying transformer on_send first.
     /// Returns the prepared TX confirmation message for the Lua on_send_confirm hook.
-    pub async fn send(&mut self, mut message: Message) -> Result<Message, CycBoxError> {
+    ///
+    /// A `REQUEST` message skips the transformer, the codec and the TX confirmation and
+    /// goes to [`Self::handle_command`] instead, so message inputs, batches and repeating
+    /// messages can drive a transport's commands. It never fails and never reports
+    /// `Pending`.
+    pub async fn send(&mut self, mut message: Message) -> Result<Sent, CycBoxError> {
+        if message.message_type == MESSAGE_TYPE_REQUEST {
+            message.connection_id = self.connection_id;
+            let response = self.handle_command(&message).await;
+            return Ok(Sent::Command {
+                command: message.get_command(),
+                response,
+            });
+        }
+
         // Apply data transformer (if present)
         if let Some(ref transformer) = self.transformer
             && let Err(e) = transformer.on_send(&mut message)
@@ -116,7 +132,7 @@ impl Connection {
 
         tx_message.connection_id = self.connection_id;
 
-        Ok(tx_message)
+        Ok(Sent::Tx(tx_message))
     }
 
     /// Cooperatively tear the underlying transport down. Awaited by the

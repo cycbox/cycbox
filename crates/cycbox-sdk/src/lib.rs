@@ -6,6 +6,7 @@ pub mod message;
 pub mod message_input;
 
 pub mod l10n;
+mod log_level;
 pub mod prelude;
 mod run_mode;
 pub mod transformer;
@@ -33,11 +34,8 @@ pub use l10n::{L10n, LocaleProvider, create_l10n_with_provider};
 
 pub use codec::Codec;
 pub use error::CycBoxError;
+pub use log_level::LogLevel;
 
 pub use run_mode::RunMode;
 pub use transformer::Transformer;
-pub use transport::{
-    MessageTransport, NoticeLevel, RawByteObserver, RawBytes, RetryLater, TransportIO,
-    TransportNotice,
-    TransportNoticeSender,
-};
+pub use transport::{MessageTransport, RetryLater, TransportContext, TransportIO, TransportSink};

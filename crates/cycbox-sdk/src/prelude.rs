@@ -8,12 +8,12 @@
 // Core traits
 pub use crate::codec::Codec;
 pub use crate::error::CycBoxError;
+pub use crate::log_level::LogLevel;
 pub use crate::manifest::{Configurable, Manifestable};
 pub use crate::transformer::Transformer;
 pub use crate::transport::{
-    CodecTransport, MessageTransport, NoticeLevel, RawByteObserver, RawBytes, RetryLater,
-    Transport,
-    TransportIO, TransportNotice, TransportNoticeSender,
+    CodecTransport, MessageTransport, RetryLater, Transport, TransportContext, TransportIO,
+    TransportSink,
 };
 
 // Manifest and form schema

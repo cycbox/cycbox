@@ -404,6 +404,12 @@ pub(crate) fn start_engine_task(
                                 engine.send_message(tx_msg).await;
                             }
                         }
+                        MessageCommand::TransportEvent(mut message) => {
+                            if let Err(e) = lua_script.on_event(&mut message).await {
+                                engine.error(&format!("Lua on_event error: {e}"));
+                            }
+                            engine.broadcast(message);
+                        }
                         MessageCommand::SendConfirm(mut message) => {
                             if let Err(e) = lua_script.on_send_confirm(&mut message).await {
                                 engine.error(&format!("Lua on_send_confirm error: {e}"));
@@ -419,7 +425,11 @@ pub(crate) fn start_engine_task(
                                     .unwrap()
                                     .as_micros() as u64;
                                 for mut message in messages {
-                                    if let Err(e) = lua_script.on_send(&mut message).await {
+                                    // A REQUEST is a transport command (D8), not TX data:
+                                    // its payload is a seq_id that on_send scripts would mangle.
+                                    if message.message_type != MESSAGE_TYPE_REQUEST
+                                        && let Err(e) = lua_script.on_send(&mut message).await
+                                    {
                                         engine.error(&format!("Lua on_send error: {e}"));
                                     }
                                     // Messages scheduled more than 500 µs in the future go to the

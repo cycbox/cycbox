@@ -12,7 +12,12 @@ live in their own crates. Dependency flows one way: engine/plugins → SDK.
 
 All plugin traits extend `Configurable + Manifestable + Send + Sync`.
 
-- **Transport** (`src/transport.rs`): `connect(configs, codec, timeout) → Box<dyn MessageTransport>`.
+- **Transport** (`src/transport.rs`): `connect(configs, codec, ctx: TransportContext) → Box<dyn MessageTransport>`.
+  `ctx` carries the receive timeout and the connection's `TransportSink`, the one channel a transport reports
+  out-of-band on: log lines (`info`/`warn`/`error`), `event(name, values)` (Lua `on_event`, then the UI) and raw RX.
+  The sink lives as long as the connection, across reconnects, and never blocks (a full channel drops and counts).
+  A failure that would repeat if retried at once is an `io::Error` wrapping `RetryLater`; `CodecTransport` turns it
+  into `CycBoxError::ConnectionBackoff`.
 - **MessageTransport** (`src/transport.rs`): High-level interface the engine works with — `recv()`, `send()`,
   `handle_command()`.
 - **Codec** (`src/codec.rs`): Stateful frame encode/decode. **Single instance shared across RX/TX**; `reset()` on
@@ -35,6 +40,8 @@ Two ways to implement `Transport`:
 ```
 RX: Transport.recv() → CodecTransport → Codec.decode() → Message → Transformer.on_receive() → UI
 TX: UI → MessageInput → Message → Transformer.on_send() → Codec.encode() → CodecTransport.send() → Transport
+REQUEST on the TX path: → MessageTransport.handle_command()  (no transformer, codec or TX confirm; response logged)
+Out of band: Transport → TransportSink → LOG line / EVENT (Lua on_event) / RAW_RX
 ```
 
 ## Message Type

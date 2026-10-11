@@ -1,8 +1,8 @@
 use crate::lua::LuaFunctionRegistry;
 use crate::message_input::MessageInputRegistry;
+use crate::transport::TransportContext;
 use crate::{Codec, CycBoxError, FormGroup, Manifestable, MessageTransport, Transformer};
 use async_trait::async_trait;
-use std::time::Duration;
 
 #[async_trait]
 pub trait RunMode: Manifestable + Send + Sync {
@@ -11,7 +11,7 @@ pub trait RunMode: Manifestable + Send + Sync {
         id: &str,
         configs: &[FormGroup],
         codec: Box<dyn Codec>,
-        timeout: Duration,
+        ctx: TransportContext,
     ) -> Result<Box<dyn MessageTransport>, CycBoxError>;
     async fn create_transformer(
         &self,

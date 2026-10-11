@@ -11,7 +11,6 @@ use cycbox_serialport::{
 use log::debug;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
 use crate::manifestable::serial_manifest;
@@ -36,7 +35,7 @@ impl Transport for SerialTransport {
         &self,
         configs: &[FormGroup],
         codec: Box<dyn Codec>,
-        timeout: Duration,
+        ctx: TransportContext,
     ) -> Result<Box<dyn MessageTransport>, CycBoxError> {
         // Extract configuration values
         let port_path = FormUtils::get_text_value(
@@ -192,7 +191,7 @@ impl Transport for SerialTransport {
 
         // Wrap the port in SerialTransport, then in CodecTransport for message-based interface
         let transport = Box::new(SerialTransportIO::new(port)) as Box<dyn TransportIO>;
-        Ok(Box::new(CodecTransport::new(transport, codec, timeout)))
+        Ok(Box::new(CodecTransport::new(transport, codec, &ctx)))
     }
 }
 

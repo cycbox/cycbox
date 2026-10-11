@@ -1,82 +1,145 @@
 use crate::{
-    COMMAND_ID_SEND_RAW, Codec, CycBoxError, FormGroup, Manifestable, Message, MessageBuilder,
+    COMMAND_ID_SEND_RAW, Codec, CycBoxError, FormGroup, LogLevel, MESSAGE_TYPE_LOG,
+    MESSAGE_TYPE_RAW_RX, Manifestable, Message, MessageBuilder, PayloadType, Value,
 };
 use async_trait::async_trait;
 use bytes::BytesMut;
 use log::{debug, info, warn};
 use std::collections::VecDeque;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TrySendError;
 
-/// A raw-byte observation captured from the underlying byte-stream transport.
-#[derive(Debug, Clone)]
-pub struct RawBytes {
-    /// Microseconds since UNIX_EPOCH at the moment the bytes were observed.
-    pub timestamp: u64,
-    pub bytes: Vec<u8>,
-}
+/// Id of the value that carries a sink `LOG` message's level ([`LogLevel::as_str`]).
+pub const LOG_LEVEL_VALUE_ID: &str = "level";
 
-/// Bounded sink that a stream-based transport notifies on every read.
-#[derive(Clone)]
-pub struct RawByteObserver {
-    pub rx: mpsc::Sender<RawBytes>,
-}
-
-/// Severity of a [`TransportNotice`]. Maps onto the engine's log levels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NoticeLevel {
-    Info,
-    Warning,
-    Error,
-}
-
-/// A transport-level lifecycle event that the user should see — a server
-/// accepting or losing a client, a rejected handshake, and so on.
+/// Per-connection sink a transport pushes out-of-band messages on: log lines, events,
+/// and raw RX bytes. None of these are protocol data — they never pass through the
+/// codec, the transformer, or the Lua `on_receive` hook.
 ///
-/// Notices are *not* protocol data: they carry no frame and never pass through
-/// the codec, the transformer, or the Lua `on_receive` hook. The connection
-/// task turns them into `MESSAGE_TYPE_LOG` messages tagged with the owning
-/// connection id and broadcasts them straight to subscribers.
-#[derive(Debug, Clone)]
-pub struct TransportNotice {
-    pub level: NoticeLevel,
-    pub text: String,
-}
-
-/// Bounded sink a transport uses to report [`TransportNotice`]s.
+/// The engine creates one sink per connection, before the first connect, and keeps it
+/// across reconnects, so a background task a transport spawns inside
+/// [`Transport::connect`] can report from its first moment.
 ///
-/// Sending never blocks and never fails the caller — a full channel drops the
-/// notice — so the helpers below are safe to call from inside `poll_read` /
-/// `poll_write` as well as from async code.
+/// Sending never blocks and never fails the caller: a full channel drops the message and
+/// counts it ([`Self::take_dropped`]), so every method is safe inside `poll_read` /
+/// `poll_write` as well as in async code. A sink whose receiver is gone (see
+/// [`Self::detached`]) drops silently.
 #[derive(Clone)]
-pub struct TransportNoticeSender {
-    pub tx: mpsc::Sender<TransportNotice>,
+pub struct TransportSink {
+    tx: mpsc::Sender<Message>,
+    dropped: Arc<AtomicU32>,
+    raw_rx: bool,
 }
 
-impl TransportNoticeSender {
-    pub fn send(&self, level: NoticeLevel, text: impl Into<String>) {
-        let _ = self.tx.try_send(TransportNotice {
-            level,
-            text: text.into(),
-        });
+impl TransportSink {
+    /// A sink and the receiver its messages arrive on. `raw_rx` enables [`Self::raw_rx`];
+    /// with it off, raw bytes are not even copied.
+    pub fn new(capacity: usize, raw_rx: bool) -> (Self, mpsc::Receiver<Message>) {
+        let (tx, rx) = mpsc::channel(capacity);
+        let sink = Self {
+            tx,
+            dropped: Arc::new(AtomicU32::new(0)),
+            raw_rx,
+        };
+        (sink, rx)
+    }
+
+    /// A sink that goes nowhere, for callers with no engine behind them.
+    pub fn detached() -> Self {
+        Self::new(1, false).0
+    }
+
+    /// Push a message as is. The receiver stamps the connection id.
+    pub fn send(&self, message: Message) {
+        if let Err(TrySendError::Full(_)) = self.tx.try_send(message) {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// A `MESSAGE_TYPE_LOG` message: `text` as a text payload, `level` as a value.
+    pub fn log(&self, level: LogLevel, text: impl Into<String>) {
+        let text: String = text.into();
+        let message = MessageBuilder::new()
+            .message_type(MESSAGE_TYPE_LOG)
+            .payload(PayloadType::Text, text.into_bytes())
+            .add_value(Value::new_string(LOG_LEVEL_VALUE_ID, level.as_str()))
+            .build();
+        self.send(message);
     }
 
     pub fn info(&self, text: impl Into<String>) {
-        self.send(NoticeLevel::Info, text);
+        self.log(LogLevel::Info, text);
     }
 
     pub fn warn(&self, text: impl Into<String>) {
-        self.send(NoticeLevel::Warning, text);
+        self.log(LogLevel::Warning, text);
     }
 
     pub fn error(&self, text: impl Into<String>) {
-        self.send(NoticeLevel::Error, text);
+        self.log(LogLevel::Error, text);
+    }
+
+    /// A `MESSAGE_TYPE_EVENT` message named `name` (Lua `on_event`, then the UI).
+    pub fn event(&self, name: &str, values: Vec<Value>) {
+        self.send(MessageBuilder::event(name).add_values(values).build());
+    }
+
+    /// A `MESSAGE_TYPE_RAW_RX` message, if this sink has raw RX enabled.
+    pub fn raw_rx(&self, timestamp: u64, bytes: &[u8]) {
+        if !self.raw_rx {
+            return;
+        }
+        let message = MessageBuilder::new()
+            .message_type(MESSAGE_TYPE_RAW_RX)
+            .timestamp(timestamp)
+            .frame(bytes.to_vec())
+            .build();
+        self.send(message);
+    }
+
+    /// Whether [`Self::raw_rx`] does anything.
+    pub fn raw_rx_enabled(&self) -> bool {
+        self.raw_rx
+    }
+
+    /// Number of messages dropped on a full channel since the last call.
+    pub fn take_dropped(&self) -> u32 {
+        self.dropped.swap(0, Ordering::Relaxed)
+    }
+}
+
+/// What the engine hands a transport at connect time.
+#[derive(Clone)]
+pub struct TransportContext {
+    /// Where the transport reports logs, events and raw RX. Lives as long as the
+    /// connection, across reconnects.
+    pub sink: TransportSink,
+    /// Receive timeout `CodecTransport` uses to drive `Codec::decode_timeout`.
+    pub timeout: Duration,
+}
+
+impl TransportContext {
+    pub fn new(sink: TransportSink, timeout: Duration) -> Self {
+        Self { sink, timeout }
+    }
+
+    /// A context with a [`TransportSink::detached`] sink.
+    pub fn detached(timeout: Duration) -> Self {
+        Self::new(TransportSink::detached(), timeout)
     }
 }
 
 /// A byte-stream transport's report that the failure it just produced will repeat if it
 /// is retried straight away.
+///
+/// A transport fails a read or a write with `io::Error::other(RetryLater::new(..))` (or
+/// `RetryLater::new(..).into()`); `CodecTransport` finds it inside the `io::Error` and
+/// returns [`CycBoxError::ConnectionBackoff`] instead of [`CycBoxError::Connection`]. The
+/// connection task still reconnects; it just waits much longer first.
 #[derive(Debug, Clone)]
 pub struct RetryLater {
     pub reason: String,
@@ -88,18 +151,40 @@ impl RetryLater {
             reason: reason.into(),
         }
     }
+
+    /// The `RetryLater` inside `error`, if there is one.
+    pub fn find(error: &std::io::Error) -> Option<&RetryLater> {
+        error.get_ref()?.downcast_ref::<RetryLater>()
+    }
+}
+
+impl std::fmt::Display for RetryLater {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.reason)
+    }
+}
+
+impl std::error::Error for RetryLater {}
+
+impl From<RetryLater> for std::io::Error {
+    fn from(hint: RetryLater) -> Self {
+        std::io::Error::other(hint)
+    }
 }
 
 #[async_trait]
 pub trait Transport: Manifestable + Send + Sync {
     /// Connect to the transport with the given configurations and codec.
     ///
+    /// `ctx` carries the connection's [`TransportSink`] and receive timeout. Transports
+    /// keep a clone of the sink for as long as they have something to report.
+    ///
     /// Returns a boxed MessageTransport on success, or an error on failure.
     async fn connect(
         &self,
         configs: &[FormGroup],
         codec: Box<dyn Codec>,
-        timeout: Duration,
+        ctx: TransportContext,
     ) -> Result<Box<dyn MessageTransport>, CycBoxError>;
 }
 
@@ -127,28 +212,6 @@ pub trait TransportIO: AsyncRead + AsyncWrite + Send + Unpin {
     fn take_session_boundary(&mut self) -> bool {
         false
     }
-
-    /// Returns (and clears) an explanation for the failure this transport has just
-    /// produced, when retrying it soon is known to be futile.
-    ///
-    /// `CodecTransport` consults this after a read or write fails, and after an EOF, and
-    /// turns a `Some` into [`CycBoxError::ConnectionBackoff`] instead of
-    /// [`CycBoxError::Connection`]. The connection task still reconnects; it just waits
-    /// much longer first.
-    ///
-    /// Default returns `None`, which is the right answer for every transport whose
-    /// failures are all plain network failures.
-    fn take_retry_hint(&mut self) -> Option<RetryLater> {
-        None
-    }
-
-    /// Install the sink this transport reports lifecycle notices on (client
-    /// connected / disconnected, rejected handshake, …). `CodecTransport`
-    /// forwards the connection task's sender down here. Pass `None` to detach.
-    ///
-    /// Default no-op; only server-style transports with a client lifecycle
-    /// need to override it.
-    fn set_notice_sender(&mut self, _sender: Option<TransportNoticeSender>) {}
 
     /// Cooperatively tear the transport down. Implementations should release
     /// any OS handles, terminate background bridge tasks, and `await` until
@@ -184,17 +247,6 @@ pub trait MessageTransport: Send + Unpin {
         None
     }
 
-    /// Install observers that receive raw bytes flowing through the transport
-    /// (pre-decode for RX, post-encode for TX). Default no-op; only stream-based
-    /// transports backed by `CodecTransport` honour this. Pass `None` to detach.
-    fn set_raw_observer(&mut self, _observer: Option<RawByteObserver>) {}
-
-    /// Install the sink this transport reports lifecycle notices on. See
-    /// [`TransportIO::set_notice_sender`]; message-based transports (WebSocket
-    /// server, MQTT, …) implement this directly, while `CodecTransport`
-    /// forwards it to the byte-stream transport it wraps.
-    fn set_notice_sender(&mut self, _sender: Option<TransportNoticeSender>) {}
-
     /// Cooperatively tear the transport down, awaiting any in-flight cleanup
     /// (background bridge tasks, remote disconnect handshakes, etc.). Called
     /// by the engine before dropping the transport on cooperative shutdown
@@ -221,31 +273,34 @@ pub struct CodecTransport {
     read_buf: Vec<u8>,
     timeout_duration: Duration,
     pending_messages: VecDeque<Message>,
-    raw_observer: Option<RawByteObserver>,
+    sink: TransportSink,
 }
 
 impl CodecTransport {
+    /// Wraps `transport` and `codec`, taking the receive timeout and the raw-RX sink from
+    /// `ctx`.
     pub fn new(
         transport: Box<dyn TransportIO>,
         codec: Box<dyn Codec>,
-        timeout_duration: Duration,
+        ctx: &TransportContext,
     ) -> Self {
         Self {
             transport,
             codec,
             buffer: BytesMut::new(),
             read_buf: vec![0u8; 102400],
-            timeout_duration,
+            timeout_duration: ctx.timeout,
             pending_messages: VecDeque::new(),
-            raw_observer: None,
+            sink: ctx.sink.clone(),
         }
     }
 
-    /// Wraps a transport failure as the error the connection task should act on.
-    fn connection_error(&mut self, cause: impl std::fmt::Display) -> CycBoxError {
-        match self.transport.take_retry_hint() {
-            Some(hint) => CycBoxError::ConnectionBackoff(format!("{}: {cause}", hint.reason)),
-            None => CycBoxError::Connection(cause.to_string()),
+    /// Wraps a transport failure as the error the connection task should act on: a
+    /// [`RetryLater`] inside the `io::Error` asks for the slow backoff.
+    fn connection_error(error: std::io::Error) -> CycBoxError {
+        match RetryLater::find(&error) {
+            Some(hint) => CycBoxError::ConnectionBackoff(hint.reason.clone()),
+            None => CycBoxError::Connection(error.to_string()),
         }
     }
 }
@@ -286,20 +341,14 @@ impl MessageTransport for CodecTransport {
                     if let Some(msg) = self.pending_messages.pop_front() {
                         return Ok(Some(msg));
                     }
-                    return match self.transport.take_retry_hint() {
-                        Some(hint) => Err(CycBoxError::ConnectionBackoff(hint.reason)),
-                        None => Ok(None),
-                    };
+                    return Ok(None);
                 }
                 Ok(Ok(n)) => {
                     // Surface raw bytes before any decode work runs — this guarantees
                     // the UI sees them even if the codec mishandles the buffer.
-                    if let Some(ref observer) = self.raw_observer {
-                        let raw = RawBytes {
-                            timestamp: Message::current_timestamp(),
-                            bytes: self.read_buf[..n].to_vec(),
-                        };
-                        let _ = observer.rx.try_send(raw);
+                    if self.sink.raw_rx_enabled() {
+                        self.sink
+                            .raw_rx(Message::current_timestamp(), &self.read_buf[..n]);
                     }
 
                     // If the underlying transport rotated to a new logical
@@ -352,7 +401,7 @@ impl MessageTransport for CodecTransport {
                     }
                     // continue loop to read more
                 }
-                Ok(Err(e)) => return Err(self.connection_error(e)),
+                Ok(Err(e)) => return Err(Self::connection_error(e)),
                 Err(_) => {
                     // Honour a session boundary observed during the idle
                     // window: drain final frame, then reset codec/buffer.
@@ -399,7 +448,7 @@ impl MessageTransport for CodecTransport {
                 // trigger the connection task's reconnect path.
                 return Err(match e.kind() {
                     std::io::ErrorKind::NotConnected => CycBoxError::Discarded(e.to_string()),
-                    _ => self.connection_error(e),
+                    _ => Self::connection_error(e),
                 });
             }
         }
@@ -426,14 +475,6 @@ impl MessageTransport for CodecTransport {
             return Some(response);
         }
         self.transport.handle_command(command).await
-    }
-
-    fn set_raw_observer(&mut self, observer: Option<RawByteObserver>) {
-        self.raw_observer = observer;
-    }
-
-    fn set_notice_sender(&mut self, sender: Option<TransportNoticeSender>) {
-        self.transport.set_notice_sender(sender);
     }
 
     async fn close(&mut self) {

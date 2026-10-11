@@ -43,6 +43,13 @@ pub const DEFAULT_LUA_SCRIPT: &str = r#"
 --   return false
 -- end
 
+-- function on_event()
+--   -- Called for each event a transport reports (client connected, ...)
+--   -- Access message fields: message.connection_id, message:get_value("peer")
+--   -- Return true if modified, false otherwise
+--   return false
+-- end
+
 -- function on_stop()
 --   -- Called before engine stops or script is reloaded
 -- end
@@ -56,6 +63,7 @@ pub struct LuaScript {
     has_on_receive_hook: bool,
     has_on_timer_hook: bool,
     has_on_send_confirm_hook: bool,
+    has_on_event_hook: bool,
     has_on_stop_hook: bool,
     lua: Lua,
     engine: EngineRef,
@@ -93,6 +101,7 @@ impl LuaScript {
             has_on_receive_hook: false,
             has_on_timer_hook: false,
             has_on_send_confirm_hook: false,
+            has_on_event_hook: false,
             has_on_stop_hook: false,
             lua: Lua::new(),
             engine: engine.clone(),
@@ -129,6 +138,11 @@ impl LuaScript {
             .ok()
             .flatten()
             .is_some();
+        lua_script.has_on_event_hook = globals
+            .get::<Option<Function>>("on_event")
+            .ok()
+            .flatten()
+            .is_some();
         lua_script.has_on_stop_hook = globals
             .get::<Option<Function>>("on_stop")
             .ok()
@@ -139,14 +153,16 @@ impl LuaScript {
             || lua_script.has_on_receive_hook
             || lua_script.has_on_timer_hook
             || lua_script.has_on_send_confirm_hook
+            || lua_script.has_on_event_hook
         {
             engine.info(&format!(
-                "Lua script hooks enabled: start={}, send={}, receive={}, timer={}, send_confirm={}, stop={}",
+                "Lua script hooks enabled: start={}, send={}, receive={}, timer={}, send_confirm={}, event={}, stop={}",
                 lua_script.has_on_start_hook,
                 lua_script.has_on_send_hook,
                 lua_script.has_on_receive_hook,
                 lua_script.has_on_timer_hook,
                 lua_script.has_on_send_confirm_hook,
+                lua_script.has_on_event_hook,
                 lua_script.has_on_stop_hook,
             ));
 
@@ -195,6 +211,16 @@ impl LuaScript {
             return Ok(());
         }
         self.call_message_hook("on_receive", message).await
+    }
+
+    /// Process a transport-originated event using the Lua on_event hook.
+    /// Same convention as on_receive: the event is the global `message`, copied back only
+    /// if the hook returns true.
+    pub async fn on_event(&mut self, message: &mut Message) -> Result<(), CycBoxError> {
+        if !self.has_on_event_hook {
+            return Ok(());
+        }
+        self.call_message_hook("on_event", message).await
     }
 
     /// Process message using Lua on_send hook (TX only)
@@ -324,45 +350,42 @@ impl LuaScript {
         // Add async send_after function: send_after(payload, delay_ms, connection_id)
         // Returns error if payload is nil
         let engine = self.engine.clone();
-        let send_after_fn =
-            lua.create_async_function(
-                move |_lua,
-                      (payload, delay_ms, connection_id): (
-                    Option<mlua::LuaString>,
-                    u64,
-                    Option<u32>,
-                )| {
-                    let engine = engine.clone();
-                    async move {
-                        // Validate payload is not nil
-                        let payload_str = payload.ok_or_else(|| {
-                            mlua::Error::RuntimeError(
-                                "send_after: payload cannot be nil".to_string(),
-                            )
-                        })?;
+        let send_after_fn = lua.create_async_function(
+            move |_lua,
+                  (payload, delay_ms, connection_id): (
+                Option<mlua::LuaString>,
+                u64,
+                Option<u32>,
+            )| {
+                let engine = engine.clone();
+                async move {
+                    // Validate payload is not nil
+                    let payload_str = payload.ok_or_else(|| {
+                        mlua::Error::RuntimeError("send_after: payload cannot be nil".to_string())
+                    })?;
 
-                        // Convert payload string to bytes (handles arbitrary binary data)
-                        let payload_bytes = payload_str.as_bytes().to_vec();
-                        let connection_id = connection_id.unwrap_or(0);
-                        let mut timestamp = Message::current_timestamp();
-                        if delay_ms > 0 {
-                            timestamp += delay_ms * 1000; // Convert ms to µs
-                        }
-                        let builder = MessageBuilder::tx(
-                            connection_id,
-                            PayloadType::Binary,
-                            payload_bytes,
-                            Vec::new(),
-                        )
-                        .timestamp(timestamp);
-
-                        // Send to delay queue
-                        engine.send_message(builder.build()).await;
-
-                        Ok(true)
+                    // Convert payload string to bytes (handles arbitrary binary data)
+                    let payload_bytes = payload_str.as_bytes().to_vec();
+                    let connection_id = connection_id.unwrap_or(0);
+                    let mut timestamp = Message::current_timestamp();
+                    if delay_ms > 0 {
+                        timestamp += delay_ms * 1000; // Convert ms to µs
                     }
-                },
-            )?;
+                    let builder = MessageBuilder::tx(
+                        connection_id,
+                        PayloadType::Binary,
+                        payload_bytes,
+                        Vec::new(),
+                    )
+                    .timestamp(timestamp);
+
+                    // Send to delay queue
+                    engine.send_message(builder.build()).await;
+
+                    Ok(true)
+                }
+            },
+        )?;
 
         globals.set("send_after", send_after_fn)?;
 

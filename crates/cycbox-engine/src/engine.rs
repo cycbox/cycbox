@@ -6,8 +6,8 @@ use async_trait::async_trait;
 use cycbox_sdk::lua::LuaEngine;
 use cycbox_sdk::message::{SYSTEM_CONNECTION_ID, UNKNOW_CONNECTION_ID};
 use cycbox_sdk::{
-    Color, Content, ContentType, Decoration, MESSAGE_TYPE_LOG, Manifest, Message, MessageBuilder,
-    NoticeLevel, RunMode, TransportNotice, Value,
+    Color, Content, ContentType, Decoration, LogLevel, MESSAGE_TYPE_LOG, Manifest, Message,
+    MessageBuilder, RunMode, Value,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,44 +20,6 @@ const CONTROL_CHANNEL_CAPACITY: usize = 64;
 const MESSAGE_CHANNEL_CAPACITY: usize = 10_000;
 /// Capacity for the broadcast channel that fans messages out to subscribers.
 const BROADCAST_CHANNEL_CAPACITY: usize = 10_000;
-
-#[derive(Debug, Clone, Copy)]
-pub enum LogLevel {
-    Info,
-    Warning,
-    Error,
-    Debug,
-}
-
-impl LogLevel {
-    fn color(&self) -> Color {
-        match self {
-            LogLevel::Info => Color::Primary,
-            LogLevel::Warning => Color::Tertiary,
-            LogLevel::Error => Color::Error,
-            LogLevel::Debug => Color::OnSurfaceVariant,
-        }
-    }
-
-    fn prefix(&self) -> &'static str {
-        match self {
-            LogLevel::Info => "INFO",
-            LogLevel::Warning => "WARN",
-            LogLevel::Error => "ERROR",
-            LogLevel::Debug => "DEBUG",
-        }
-    }
-}
-
-impl From<NoticeLevel> for LogLevel {
-    fn from(level: NoticeLevel) -> Self {
-        match level {
-            NoticeLevel::Info => LogLevel::Info,
-            NoticeLevel::Warning => LogLevel::Warning,
-            NoticeLevel::Error => LogLevel::Error,
-        }
-    }
-}
 
 /// Public API handle for the engine, implemented with the actor pattern.
 ///
@@ -422,11 +384,22 @@ impl EngineRef {
         self.0.log(LogLevel::Error, message);
     }
 
-    /// Broadcast a transport lifecycle notice as a log line attributed to the
-    /// connection that produced it.
-    pub(crate) fn notice(&self, connection_id: u32, notice: TransportNotice) {
-        self.0
-            .log_for(connection_id, notice.level.into(), &notice.text);
+    /// Log a line attributed to `connection_id` (non-blocking).
+    pub(crate) fn log_for(&self, connection_id: u32, level: LogLevel, message: &str) {
+        self.0.log_for(connection_id, level, message);
+    }
+
+    /// Fire-and-forget: queue a transport-originated `EVENT` for the Lua `on_event` hook,
+    /// then broadcast.
+    pub(crate) async fn transport_event(&self, message: Message) {
+        if let Err(e) = self
+            .0
+            .message_sender
+            .send(MessageCommand::TransportEvent(message))
+            .await
+        {
+            log::error!("Failed to send transport event: {}", e);
+        }
     }
 }
 
@@ -437,12 +410,8 @@ impl LuaEngine for EngineRef {
     }
 
     fn log(&self, level: &str, message: &str) {
-        match level.to_lowercase().as_str() {
-            "debug" => self.0.log(LogLevel::Debug, message),
-            "info" => self.0.log(LogLevel::Info, message),
-            "warn" | "warning" => self.0.log(LogLevel::Warning, message),
-            "error" => self.0.log(LogLevel::Error, message),
-            _ => self.0.log(LogLevel::Info, message), // default to info if unrecognized
-        }
+        // default to info if unrecognized
+        self.0
+            .log(LogLevel::parse(level).unwrap_or(LogLevel::Info), message);
     }
 }

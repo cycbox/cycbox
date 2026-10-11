@@ -83,4 +83,7 @@ pub(crate) enum MessageCommand {
     /// Messages whose `timestamp` is more than 500 µs in the future are queued in the delay
     /// queue; otherwise they are dispatched immediately to the matching connection sender.
     SendMessages { messages: Vec<Message> },
+    /// An `EVENT` a transport pushed on its sink, already stamped with its connection id.
+    /// Runs the Lua `on_event` hook, then broadcasts.
+    TransportEvent(Message),
 }

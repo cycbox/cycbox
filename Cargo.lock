@@ -439,6 +439,7 @@ name = "cycbox-engine"
 version = "2.4.0"
 dependencies = [
  "async-trait",
+ "bytes",
  "chrono",
  "cycbox-sdk",
  "encoding_rs",

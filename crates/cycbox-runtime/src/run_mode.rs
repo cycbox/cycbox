@@ -13,7 +13,6 @@ use cycbox_sdk::message::lua_functions::MessageLuaHelper;
 use cycbox_sdk::prelude::*;
 use serialport_transport::{SERIAL_PORT_TRANSPORT_ID, SerialTransport};
 use std::sync::Arc;
-use std::time::Duration;
 
 const RUNTIME_RUN_MODE_ID: &str = "runtime";
 
@@ -121,10 +120,10 @@ impl RunMode for RuntimeRunMode {
         id: &str,
         configs: &[FormGroup],
         codec: Box<dyn Codec>,
-        timeout: Duration,
+        ctx: TransportContext,
     ) -> Result<Box<dyn MessageTransport>, CycBoxError> {
         let transport = match id {
-            SERIAL_PORT_TRANSPORT_ID => SerialTransport.connect(configs, codec, timeout).await?,
+            SERIAL_PORT_TRANSPORT_ID => SerialTransport.connect(configs, codec, ctx).await?,
             _ => {
                 return Err(CycBoxError::Unsupported(format!("transport type: {}", id)));
             }
