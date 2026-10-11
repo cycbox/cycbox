@@ -324,45 +324,42 @@ impl LuaScript {
         // Add async send_after function: send_after(payload, delay_ms, connection_id)
         // Returns error if payload is nil
         let engine = self.engine.clone();
-        let send_after_fn =
-            lua.create_async_function(
-                move |_lua,
-                      (payload, delay_ms, connection_id): (
-                    Option<mlua::LuaString>,
-                    u64,
-                    Option<u32>,
-                )| {
-                    let engine = engine.clone();
-                    async move {
-                        // Validate payload is not nil
-                        let payload_str = payload.ok_or_else(|| {
-                            mlua::Error::RuntimeError(
-                                "send_after: payload cannot be nil".to_string(),
-                            )
-                        })?;
+        let send_after_fn = lua.create_async_function(
+            move |_lua,
+                  (payload, delay_ms, connection_id): (
+                Option<mlua::LuaString>,
+                u64,
+                Option<u32>,
+            )| {
+                let engine = engine.clone();
+                async move {
+                    // Validate payload is not nil
+                    let payload_str = payload.ok_or_else(|| {
+                        mlua::Error::RuntimeError("send_after: payload cannot be nil".to_string())
+                    })?;
 
-                        // Convert payload string to bytes (handles arbitrary binary data)
-                        let payload_bytes = payload_str.as_bytes().to_vec();
-                        let connection_id = connection_id.unwrap_or(0);
-                        let mut timestamp = Message::current_timestamp();
-                        if delay_ms > 0 {
-                            timestamp += delay_ms * 1000; // Convert ms to µs
-                        }
-                        let builder = MessageBuilder::tx(
-                            connection_id,
-                            PayloadType::Binary,
-                            payload_bytes,
-                            Vec::new(),
-                        )
-                        .timestamp(timestamp);
-
-                        // Send to delay queue
-                        engine.send_message(builder.build()).await;
-
-                        Ok(true)
+                    // Convert payload string to bytes (handles arbitrary binary data)
+                    let payload_bytes = payload_str.as_bytes().to_vec();
+                    let connection_id = connection_id.unwrap_or(0);
+                    let mut timestamp = Message::current_timestamp();
+                    if delay_ms > 0 {
+                        timestamp += delay_ms * 1000; // Convert ms to µs
                     }
-                },
-            )?;
+                    let builder = MessageBuilder::tx(
+                        connection_id,
+                        PayloadType::Binary,
+                        payload_bytes,
+                        Vec::new(),
+                    )
+                    .timestamp(timestamp);
+
+                    // Send to delay queue
+                    engine.send_message(builder.build()).await;
+
+                    Ok(true)
+                }
+            },
+        )?;
 
         globals.set("send_after", send_after_fn)?;
 

@@ -1,4 +1,6 @@
-use cycbox_sdk::message_input::{parse_hex_string, text_to_bytes, MessageInput, MessageInputRegistry};
+use cycbox_sdk::message_input::{
+    MessageInput, MessageInputRegistry, parse_hex_string, text_to_bytes,
+};
 
 // ---- parse_hex_string ----
 

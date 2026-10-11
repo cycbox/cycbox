@@ -1,6 +1,8 @@
 mod common;
 
-use common::{make_form_field, make_form_field_with_value, make_form_group, make_manifest_with_schema};
+use common::{
+    make_form_field, make_form_field_with_value, make_form_group, make_manifest_with_schema,
+};
 use cycbox_sdk::{FieldType, FormFieldOption, FormValue, ManifestValues};
 use std::collections::HashMap;
 
@@ -134,7 +136,10 @@ fn from_manifest_empty_groups_excluded() {
                 FormValue::Text("tcp".into()),
             )],
         ),
-        make_form_group("tcp", vec![make_form_field("empty_field", FieldType::TextInput)]),
+        make_form_group(
+            "tcp",
+            vec![make_form_field("empty_field", FieldType::TextInput)],
+        ),
     ];
     let mut manifest = make_manifest_with_schema(schema.clone());
     manifest.configs.push(schema);

@@ -41,14 +41,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Read response (with timeout)
     let mut buffer = vec![0u8; 1024];
-    match tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        port.read(&mut buffer),
-    )
-    .await
-    {
+    match tokio::time::timeout(std::time::Duration::from_secs(2), port.read(&mut buffer)).await {
         Ok(Ok(n)) => {
-            println!("Received {} bytes: {:?}", n, String::from_utf8_lossy(&buffer[..n]));
+            println!(
+                "Received {} bytes: {:?}",
+                n,
+                String::from_utf8_lossy(&buffer[..n])
+            );
         }
         Ok(Err(e)) => {
             eprintln!("Read error: {}", e);

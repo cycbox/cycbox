@@ -17,11 +17,17 @@ struct NtfyConfig {
     email: Option<String>,
 }
 
-fn extract_config(config: &mlua::Table, caller: &str) -> Result<NtfyConfig, (bool, Option<String>)> {
+fn extract_config(
+    config: &mlua::Table,
+    caller: &str,
+) -> Result<NtfyConfig, (bool, Option<String>)> {
     let topic: String = match config.get("topic") {
         Ok(t) => t,
         Err(_) => {
-            return Err((false, Some(format!("{}: 'topic' field is required", caller))));
+            return Err((
+                false,
+                Some(format!("{}: 'topic' field is required", caller)),
+            ));
         }
     };
 
@@ -32,7 +38,10 @@ fn extract_config(config: &mlua::Table, caller: &str) -> Result<NtfyConfig, (boo
     let message: String = match config.get("message") {
         Ok(m) => m,
         Err(_) => {
-            return Err((false, Some(format!("{}: 'message' field is required", caller))));
+            return Err((
+                false,
+                Some(format!("{}: 'message' field is required", caller)),
+            ));
         }
     };
 
@@ -60,11 +69,19 @@ fn extract_config(config: &mlua::Table, caller: &str) -> Result<NtfyConfig, (boo
     let tags: Option<String> = match config.get("tags") {
         Ok(mlua::Value::String(s)) => {
             let tag_str = s.to_str().map(|s| s.to_string()).unwrap_or_default();
-            if tag_str.is_empty() { None } else { Some(tag_str) }
+            if tag_str.is_empty() {
+                None
+            } else {
+                Some(tag_str)
+            }
         }
         Ok(mlua::Value::Table(tbl)) => {
             let tag_list: Vec<String> = tbl.sequence_values::<String>().flatten().collect();
-            if tag_list.is_empty() { None } else { Some(tag_list.join(",")) }
+            if tag_list.is_empty() {
+                None
+            } else {
+                Some(tag_list.join(","))
+            }
         }
         _ => None,
     };
@@ -81,19 +98,47 @@ fn extract_config(config: &mlua::Table, caller: &str) -> Result<NtfyConfig, (boo
         ));
     }
 
-    Ok(NtfyConfig { url, topic, message, title, priority, tags, click, attach, actions, icon, email })
+    Ok(NtfyConfig {
+        url,
+        topic,
+        message,
+        title,
+        priority,
+        tags,
+        click,
+        attach,
+        actions,
+        icon,
+        email,
+    })
 }
 
 fn build_request(client: &reqwest::Client, cfg: &NtfyConfig) -> reqwest::RequestBuilder {
     let mut request = client.post(&cfg.url).body(cfg.message.clone());
-    if let Some(ref t) = cfg.title    { request = request.header("Title", t); }
-    if let Some(ref p) = cfg.priority { request = request.header("Priority", p); }
-    if let Some(ref t) = cfg.tags     { request = request.header("Tags", t); }
-    if let Some(ref c) = cfg.click    { request = request.header("Click", c); }
-    if let Some(ref a) = cfg.attach   { request = request.header("Attach", a); }
-    if let Some(ref a) = cfg.actions  { request = request.header("Actions", a); }
-    if let Some(ref i) = cfg.icon     { request = request.header("Icon", i); }
-    if let Some(ref e) = cfg.email    { request = request.header("Email", e); }
+    if let Some(ref t) = cfg.title {
+        request = request.header("Title", t);
+    }
+    if let Some(ref p) = cfg.priority {
+        request = request.header("Priority", p);
+    }
+    if let Some(ref t) = cfg.tags {
+        request = request.header("Tags", t);
+    }
+    if let Some(ref c) = cfg.click {
+        request = request.header("Click", c);
+    }
+    if let Some(ref a) = cfg.attach {
+        request = request.header("Attach", a);
+    }
+    if let Some(ref a) = cfg.actions {
+        request = request.header("Actions", a);
+    }
+    if let Some(ref i) = cfg.icon {
+        request = request.header("Icon", i);
+    }
+    if let Some(ref e) = cfg.email {
+        request = request.header("Email", e);
+    }
     request
 }
 
@@ -158,10 +203,16 @@ async fn do_ntfy_send_async(config: mlua::Table) -> bool {
                 }
             }
             Ok(Err(e)) => {
-                warn!("[Lua] ntfy (async): request failed for topic '{}': {}", topic, e);
+                warn!(
+                    "[Lua] ntfy (async): request failed for topic '{}': {}",
+                    topic, e
+                );
             }
             Err(_) => {
-                warn!("[Lua] ntfy (async): request timed out (10s) for topic '{}'", topic);
+                warn!(
+                    "[Lua] ntfy (async): request timed out (10s) for topic '{}'",
+                    topic
+                );
             }
         }
     });

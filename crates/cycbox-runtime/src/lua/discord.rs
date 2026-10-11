@@ -119,7 +119,10 @@ async fn do_discord_send(
         }
         Ok(Err(e)) => {
             warn!("[Lua] Discord: webhook request failed: {}", e);
-            (false, Some(format!("Discord webhook request failed: {}", e)))
+            (
+                false,
+                Some(format!("Discord webhook request failed: {}", e)),
+            )
         }
         Err(_) => {
             warn!("[Lua] Discord: webhook timed out (5s)");

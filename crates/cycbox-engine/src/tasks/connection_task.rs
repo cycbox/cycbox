@@ -23,9 +23,9 @@ const OUTBOX_RETRY_INTERVAL: Duration = Duration::from_millis(100);
 /// Bound for the raw-byte observation channel between `CodecTransport` and
 /// the connection task.
 const RAW_OBSERVER_BUF: usize = 256;
-/// Bound for the transport-notice channel. Notices are client lifecycle
-/// events, so a handful in flight is already generous.
-const NOTICE_BUF: usize = 32;
+/// Bound for the transport's out-of-band log / event channel. These are
+/// low-rate lifecycle messages, so a handful in flight is already generous.
+const TRANSPORT_MESSAGE_BUF: usize = 32;
 
 enum DrainOutcome {
     Idle,
@@ -140,11 +140,14 @@ pub(crate) fn start_connection(
                 }));
             }
 
-            // Transport lifecycle notices. Delivered straight
-            // to the log stream, never through the RX pipeline.
-            let (notice_sender, mut notice_receiver) =
-                mpsc::channel::<TransportNotice>(NOTICE_BUF);
-            connection.set_notice_sender(Some(TransportNoticeSender { tx: notice_sender }));
+            // Out-of-band log / event messages from the transport. Routed by
+            // type in `EngineRef::transport_message`, never through the RX pipeline.
+            let (transport_msg_sender, mut transport_msg_receiver) =
+                mpsc::channel::<Message>(TRANSPORT_MESSAGE_BUF);
+            connection.set_message_sender(Some(TransportMessageSender::new(
+                transport_msg_sender,
+                engine.is_debug(),
+            )));
 
             // Per-connection outbox for messages deferred by codec back-pressure
             // (e.g. half-duplex Modbus RTU returning `CycBoxError::Pending` while a
@@ -261,8 +264,8 @@ pub(crate) fn start_connection(
                         let response = connection.handle_command(&cmd).await;
                         let _ = resp_sender.send(response);
                     }
-                    Some(notice) = notice_receiver.recv() => {
-                        engine.notice(connection_id, notice);
+                    Some(msg) = transport_msg_receiver.recv() => {
+                        engine.transport_message(connection_id, msg).await;
                     }
                     Some(raw) = raw_rx_receiver.recv() => {
                         let msg = MessageBuilder::new()

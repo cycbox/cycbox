@@ -48,6 +48,29 @@ impl MessageBuilder {
         builder
     }
 
+    /// A `MESSAGE_TYPE_LOG` message rendered as `[LEVEL] text`, coloured by
+    /// `level`. Attributed to the system connection unless overridden with
+    /// [`connection_id`](Self::connection_id).
+    pub fn log(level: crate::LogLevel, text: impl AsRef<str>) -> Self {
+        let content = crate::Content {
+            content_type: crate::ContentType::RichText,
+            decoration: crate::Decoration {
+                bold: matches!(level, crate::LogLevel::Error | crate::LogLevel::Warning),
+                italic: false,
+                underline: false,
+                strikethrough: false,
+                color: level.color(),
+                background: crate::Color::Transparent,
+            },
+            payload: format!("[{}] {}", level.prefix(), text.as_ref()).into_bytes(),
+            label: None,
+        };
+        let mut builder = Self::new();
+        builder.message_type = crate::MESSAGE_TYPE_LOG.to_string();
+        builder.contents = vec![content];
+        builder
+    }
+
     pub fn tx(
         connection_id: u32,
         payload_type: PayloadType,

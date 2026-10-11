@@ -1,5 +1,5 @@
 use anyhow::Result;
-use lettre::message::{header, Mailbox, MultiPart, SinglePart};
+use lettre::message::{Mailbox, MultiPart, SinglePart, header};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{Message, SmtpTransport, Transport};
 use log::{debug, warn};
@@ -55,9 +55,7 @@ fn parse_smtp_config(config: mlua::Table) -> Result<SmtpConfig, String> {
     let html_body: Option<String> = config.get("html").ok();
 
     if text_body.is_none() && html_body.is_none() {
-        return Err(
-            "smtp: at least one of 'text' or 'html' body is required".to_string(),
-        );
+        return Err("smtp: at least one of 'text' or 'html' body is required".to_string());
     }
 
     let to_addresses: Vec<String> = match to_value {
@@ -94,7 +92,9 @@ fn build_email(config: &SmtpConfig) -> Result<Message, String> {
         .parse()
         .map_err(|e| format!("smtp: invalid 'from' address: {}", e))?;
 
-    let mut builder = Message::builder().from(from_mailbox).subject(config.subject.clone());
+    let mut builder = Message::builder()
+        .from(from_mailbox)
+        .subject(config.subject.clone());
 
     for to_addr in &config.to_addresses {
         let to_mailbox: Mailbox = to_addr

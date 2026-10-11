@@ -3,11 +3,7 @@ use log::{debug, warn};
 use mlua::Lua;
 use tokio::time::Duration;
 
-async fn http_post_impl(
-    url: String,
-    body_bytes: Vec<u8>,
-    custom_headers: Vec<(String, String)>,
-) {
+async fn http_post_impl(url: String, body_bytes: Vec<u8>, custom_headers: Vec<(String, String)>) {
     let client = reqwest::Client::new();
     let mut request = client.post(&url).body(body_bytes);
 
@@ -16,8 +12,7 @@ async fn http_post_impl(
         .iter()
         .any(|(k, _)| k.eq_ignore_ascii_case("content-type"))
     {
-        request =
-            request.header(reqwest::header::CONTENT_TYPE, "application/octet-stream");
+        request = request.header(reqwest::header::CONTENT_TYPE, "application/octet-stream");
     }
     for (k, v) in &custom_headers {
         request = request.header(k.as_str(), v.as_str());

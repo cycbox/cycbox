@@ -65,25 +65,21 @@ async fn lua_redis_connect(
     };
 
     // Connect with timeout to avoid blocking the Lua engine
-    let connection = match tokio::time::timeout(
-        Duration::from_millis(500),
-        client.get_connection_manager(),
-    )
-    .await
-    {
-        Ok(Ok(conn)) => conn,
-        Ok(Err(e)) => {
-            return Ok((false, Some(format!("Failed to connect to Redis: {}", e))));
-        }
-        Err(_) => {
-            return Ok((
-                false,
-                Some(
-                    "Failed to connect to Redis: connection timed out (500ms)".to_string(),
-                ),
-            ));
-        }
-    };
+    let connection =
+        match tokio::time::timeout(Duration::from_millis(500), client.get_connection_manager())
+            .await
+        {
+            Ok(Ok(conn)) => conn,
+            Ok(Err(e)) => {
+                return Ok((false, Some(format!("Failed to connect to Redis: {}", e))));
+            }
+            Err(_) => {
+                return Ok((
+                    false,
+                    Some("Failed to connect to Redis: connection timed out (500ms)".to_string()),
+                ));
+            }
+        };
 
     // Select database if not 0
     if db != 0 {
@@ -383,8 +379,7 @@ pub(super) fn register_redis_helpers(lua: &Lua) -> Result<()> {
     globals.set("redis_connect", redis_connect)?;
 
     // value, error = redis_get(key)
-    let redis_get = lua
-        .create_async_function(|lua, key: String| lua_redis_get(lua, key))?;
+    let redis_get = lua.create_async_function(|lua, key: String| lua_redis_get(lua, key))?;
     globals.set("redis_get", redis_get)?;
 
     // ok, error = redis_set(key, value, ttl_seconds)
@@ -404,23 +399,20 @@ pub(super) fn register_redis_helpers(lua: &Lua) -> Result<()> {
     globals.set("redis_set_async", redis_set_async)?;
 
     // deleted_count, error = redis_del(key)
-    let redis_del = lua
-        .create_async_function(|lua, key: String| lua_redis_del(lua, key))?;
+    let redis_del = lua.create_async_function(|lua, key: String| lua_redis_del(lua, key))?;
     globals.set("redis_del", redis_del)?;
 
     // ok = redis_del_async(key)
-    let redis_del_async = lua
-        .create_async_function(|lua, key: String| lua_redis_del_async(lua, key))?;
+    let redis_del_async =
+        lua.create_async_function(|lua, key: String| lua_redis_del_async(lua, key))?;
     globals.set("redis_del_async", redis_del_async)?;
 
     // exists, error = redis_exists(key)
-    let redis_exists = lua
-        .create_async_function(|lua, key: String| lua_redis_exists(lua, key))?;
+    let redis_exists = lua.create_async_function(|lua, key: String| lua_redis_exists(lua, key))?;
     globals.set("redis_exists", redis_exists)?;
 
     // redis_disconnect()
-    let redis_disconnect = lua
-        .create_async_function(|lua, _: ()| lua_redis_disconnect(lua))?;
+    let redis_disconnect = lua.create_async_function(|lua, _: ()| lua_redis_disconnect(lua))?;
     globals.set("redis_disconnect", redis_disconnect)?;
 
     Ok(())

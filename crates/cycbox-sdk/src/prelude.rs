@@ -11,8 +11,8 @@ pub use crate::error::CycBoxError;
 pub use crate::manifest::{Configurable, Manifestable};
 pub use crate::transformer::Transformer;
 pub use crate::transport::{
-    CodecTransport, MessageTransport, NoticeLevel, RawByteObserver, RawBytes, Transport,
-    TransportIO, TransportNotice, TransportNoticeSender,
+    CodecTransport, MessageTransport, RawByteObserver, RawBytes, Transport, TransportIO,
+    TransportMessageSender,
 };
 
 // Manifest and form schema
@@ -26,7 +26,8 @@ pub use crate::message::{
 };
 
 pub use crate::message::{
-    Color, Content, ContentType, Decoration, Message, MessageBuilder, PayloadType, Value, ValueType,
+    Color, Content, ContentType, Decoration, LogLevel, Message, MessageBuilder, PayloadType, Value,
+    ValueType,
 };
 
 pub use crate::message::{

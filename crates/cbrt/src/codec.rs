@@ -23,9 +23,7 @@ impl Codec for CbrtCodec {
             }
 
             // Find next sync from the front of the buffer.
-            let sync_pos = buffer
-                .windows(CBRT_SYNC.len())
-                .position(|w| w == CBRT_SYNC);
+            let sync_pos = buffer.windows(CBRT_SYNC.len()).position(|w| w == CBRT_SYNC);
 
             let sync_pos = match sync_pos {
                 Some(i) => i,

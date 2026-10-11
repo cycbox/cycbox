@@ -1,5 +1,6 @@
 use crate::{
-    COMMAND_ID_SEND_RAW, Codec, CycBoxError, FormGroup, Manifestable, Message, MessageBuilder,
+    COMMAND_ID_SEND_RAW, Codec, CycBoxError, FormGroup, LogLevel, Manifestable, Message,
+    MessageBuilder, Value,
 };
 use async_trait::async_trait;
 use bytes::BytesMut;
@@ -23,55 +24,66 @@ pub struct RawByteObserver {
     pub rx: mpsc::Sender<RawBytes>,
 }
 
-/// Severity of a [`TransportNotice`]. Maps onto the engine's log levels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NoticeLevel {
-    Info,
-    Warning,
-    Error,
-}
-
-/// A transport-level lifecycle event that the user should see — a server
-/// accepting or losing a client, a rejected handshake, and so on.
+/// Bounded sink a transport uses to push out-of-band messages — log lines and
+/// events the user should see (a server accepting or losing a client, a
+/// rejected handshake, …) that are not protocol data.
 ///
-/// Notices are *not* protocol data: they carry no frame and never pass through
-/// the codec, the transformer, or the Lua `on_receive` hook. The connection
-/// task turns them into `MESSAGE_TYPE_LOG` messages tagged with the owning
-/// connection id and broadcasts them straight to subscribers.
-#[derive(Debug, Clone)]
-pub struct TransportNotice {
-    pub level: NoticeLevel,
-    pub text: String,
-}
-
-/// Bounded sink a transport uses to report [`TransportNotice`]s.
+/// Messages pushed here never pass through the codec, the transformer or the
+/// RX formatter. The connection task stamps them with the owning connection id
+/// and routes them by type:
+/// - `MESSAGE_TYPE_LOG` is broadcast straight to subscribers.
+/// - `MESSAGE_TYPE_EVENT` runs through the Lua `on_receive` hook, then is
+///   broadcast.
+/// - Any other type is dropped with a warning — protocol data belongs in
+///   [`MessageTransport::recv`].
 ///
 /// Sending never blocks and never fails the caller — a full channel drops the
-/// notice — so the helpers below are safe to call from inside `poll_read` /
-/// `poll_write` as well as from async code.
+/// message — so it is safe to call from inside `poll_read` / `poll_write` as
+/// well as from async code.
 #[derive(Clone)]
-pub struct TransportNoticeSender {
-    pub tx: mpsc::Sender<TransportNotice>,
+pub struct TransportMessageSender {
+    tx: mpsc::Sender<Message>,
+    debug_enabled: bool,
 }
 
-impl TransportNoticeSender {
-    pub fn send(&self, level: NoticeLevel, text: impl Into<String>) {
-        let _ = self.tx.try_send(TransportNotice {
-            level,
-            text: text.into(),
-        });
+impl TransportMessageSender {
+    /// `debug_enabled` controls whether [`debug`](Self::debug) lines are
+    /// forwarded or silently dropped.
+    pub fn new(tx: mpsc::Sender<Message>, debug_enabled: bool) -> Self {
+        Self { tx, debug_enabled }
     }
 
-    pub fn info(&self, text: impl Into<String>) {
-        self.send(NoticeLevel::Info, text);
+    /// Push a pre-built message. Connection id is filled in by the engine.
+    pub fn send(&self, message: Message) {
+        let _ = self.tx.try_send(message);
     }
 
-    pub fn warn(&self, text: impl Into<String>) {
-        self.send(NoticeLevel::Warning, text);
+    pub fn log(&self, level: LogLevel, text: impl AsRef<str>) {
+        if level == LogLevel::Debug && !self.debug_enabled {
+            return;
+        }
+        self.send(MessageBuilder::log(level, text).build());
     }
 
-    pub fn error(&self, text: impl Into<String>) {
-        self.send(NoticeLevel::Error, text);
+    pub fn debug(&self, text: impl AsRef<str>) {
+        self.log(LogLevel::Debug, text);
+    }
+
+    pub fn info(&self, text: impl AsRef<str>) {
+        self.log(LogLevel::Info, text);
+    }
+
+    pub fn warn(&self, text: impl AsRef<str>) {
+        self.log(LogLevel::Warning, text);
+    }
+
+    pub fn error(&self, text: impl AsRef<str>) {
+        self.log(LogLevel::Error, text);
+    }
+
+    /// Push a `MESSAGE_TYPE_EVENT` named `event_id` carrying `values`.
+    pub fn event(&self, event_id: impl Into<String>, values: Vec<Value>) {
+        self.send(MessageBuilder::event(event_id).values(values).build());
     }
 }
 
@@ -113,13 +125,14 @@ pub trait TransportIO: AsyncRead + AsyncWrite + Send + Unpin {
         false
     }
 
-    /// Install the sink this transport reports lifecycle notices on (client
-    /// connected / disconnected, rejected handshake, …). `CodecTransport`
-    /// forwards the connection task's sender down here. Pass `None` to detach.
+    /// Install the sink this transport pushes out-of-band log / event messages
+    /// on (client connected / disconnected, rejected handshake, …).
+    /// `CodecTransport` forwards the connection task's sender down here. Pass
+    /// `None` to detach.
     ///
-    /// Default no-op; only server-style transports with a client lifecycle
-    /// need to override it.
-    fn set_notice_sender(&mut self, _sender: Option<TransportNoticeSender>) {}
+    /// Default no-op; only transports with something to report beyond the
+    /// byte stream need to override it.
+    fn set_message_sender(&mut self, _sender: Option<TransportMessageSender>) {}
 
     /// Cooperatively tear the transport down. Implementations should release
     /// any OS handles, terminate background bridge tasks, and `await` until
@@ -160,11 +173,11 @@ pub trait MessageTransport: Send + Unpin {
     /// transports backed by `CodecTransport` honour this. Pass `None` to detach.
     fn set_raw_observer(&mut self, _observer: Option<RawByteObserver>) {}
 
-    /// Install the sink this transport reports lifecycle notices on. See
-    /// [`TransportIO::set_notice_sender`]; message-based transports (WebSocket
-    /// server, MQTT, …) implement this directly, while `CodecTransport`
-    /// forwards it to the byte-stream transport it wraps.
-    fn set_notice_sender(&mut self, _sender: Option<TransportNoticeSender>) {}
+    /// Install the sink this transport pushes out-of-band log / event messages
+    /// on. See [`TransportMessageSender`] for routing; message-based transports
+    /// (WebSocket server, MQTT, …) implement this directly, while
+    /// `CodecTransport` forwards it to the byte-stream transport it wraps.
+    fn set_message_sender(&mut self, _sender: Option<TransportMessageSender>) {}
 
     /// Cooperatively tear the transport down, awaiting any in-flight cleanup
     /// (background bridge tasks, remote disconnect handshakes, etc.). Called
@@ -348,17 +361,20 @@ impl MessageTransport for CodecTransport {
             message.frame = message.payload.clone();
         }
         if !message.frame.is_empty() {
-            self.transport.write_all(&message.frame).await.map_err(|e| {
-                // `NotConnected` is the agreed signal from server-style
-                // transports (e.g. p2p server with no active client) that the
-                // bytes should be discarded but the transport stays alive. All
-                // other IO errors still mean "real connection failure" and
-                // trigger the connection task's reconnect path.
-                match e.kind() {
-                    std::io::ErrorKind::NotConnected => CycBoxError::Discarded(e.to_string()),
-                    _ => CycBoxError::Connection(e.to_string()),
-                }
-            })?;
+            self.transport
+                .write_all(&message.frame)
+                .await
+                .map_err(|e| {
+                    // `NotConnected` is the agreed signal from server-style
+                    // transports (e.g. p2p server with no active client) that the
+                    // bytes should be discarded but the transport stays alive. All
+                    // other IO errors still mean "real connection failure" and
+                    // trigger the connection task's reconnect path.
+                    match e.kind() {
+                        std::io::ErrorKind::NotConnected => CycBoxError::Discarded(e.to_string()),
+                        _ => CycBoxError::Connection(e.to_string()),
+                    }
+                })?;
         }
         Ok(())
     }
@@ -389,8 +405,8 @@ impl MessageTransport for CodecTransport {
         self.raw_observer = observer;
     }
 
-    fn set_notice_sender(&mut self, sender: Option<TransportNoticeSender>) {
-        self.transport.set_notice_sender(sender);
+    fn set_message_sender(&mut self, sender: Option<TransportMessageSender>) {
+        self.transport.set_message_sender(sender);
     }
 
     async fn close(&mut self) {

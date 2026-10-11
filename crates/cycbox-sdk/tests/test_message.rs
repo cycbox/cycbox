@@ -1,7 +1,6 @@
 use cycbox_sdk::{
-    Content, Message, MessageBuilder, PayloadType, Value,
-    MESSAGE_TYPE_EVENT, MESSAGE_TYPE_REQUEST, MESSAGE_TYPE_RESPONSE, MESSAGE_TYPE_RX,
-    MESSAGE_TYPE_TX,
+    Content, MESSAGE_TYPE_EVENT, MESSAGE_TYPE_REQUEST, MESSAGE_TYPE_RESPONSE, MESSAGE_TYPE_RX,
+    MESSAGE_TYPE_TX, Message, MessageBuilder, PayloadType, Value,
 };
 use std::time::Duration;
 

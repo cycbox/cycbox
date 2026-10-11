@@ -8,6 +8,9 @@ pub use builder::MessageBuilder;
 mod content;
 pub use content::{Color, Content, ContentType, Decoration};
 
+mod log;
+pub use log::LogLevel;
+
 pub mod lua_user_data;
 
 pub mod lua_functions;

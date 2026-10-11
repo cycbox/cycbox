@@ -21,7 +21,8 @@ pub use manifest::{
 pub use message::{COMMAND_ID_CLEAR_HIGHLIGHT, COMMAND_ID_SEND_RAW, COMMAND_ID_SET_HIGHLIGHT};
 
 pub use message::{
-    Color, Content, ContentType, Decoration, Message, MessageBuilder, PayloadType, Value, ValueType,
+    Color, Content, ContentType, Decoration, LogLevel, Message, MessageBuilder, PayloadType, Value,
+    ValueType,
 };
 
 pub use message::{
@@ -37,6 +38,5 @@ pub use error::CycBoxError;
 pub use run_mode::RunMode;
 pub use transformer::Transformer;
 pub use transport::{
-    MessageTransport, NoticeLevel, RawByteObserver, RawBytes, TransportIO, TransportNotice,
-    TransportNoticeSender,
+    MessageTransport, RawByteObserver, RawBytes, TransportIO, TransportMessageSender,
 };

@@ -1,4 +1,6 @@
-use cycbox_sdk::{ConditionOperator, FieldType, FormCondition, FormField, FormFieldOption, FormValue};
+use cycbox_sdk::{
+    ConditionOperator, FieldType, FormCondition, FormField, FormFieldOption, FormValue,
+};
 
 // ---- Constructor defaults ----
 

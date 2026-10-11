@@ -140,7 +140,7 @@ pub fn parse_at(
     // Exactness check (§6.1.6).
     let chans = channels as usize;
     if datatype == 0xE {
-        if (payload_len * 8) % chans != 0 {
+        if !(payload_len * 8).is_multiple_of(chans) {
             return ParseOutcome::Reject;
         }
     } else {
@@ -148,7 +148,7 @@ pub fn parse_at(
             Some(v) => v,
             None => return ParseOutcome::Reject,
         };
-        if payload_len % (chans * bps) != 0 {
+        if !payload_len.is_multiple_of(chans * bps) {
             return ParseOutcome::Reject;
         }
     }

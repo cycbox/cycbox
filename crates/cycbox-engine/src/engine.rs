@@ -3,11 +3,11 @@ use crate::error::EngineError;
 use crate::state::EngineState;
 use crate::tasks::start_engine_task;
 use async_trait::async_trait;
+pub use cycbox_sdk::LogLevel;
 use cycbox_sdk::lua::LuaEngine;
 use cycbox_sdk::message::{SYSTEM_CONNECTION_ID, UNKNOW_CONNECTION_ID};
 use cycbox_sdk::{
-    Color, Content, ContentType, Decoration, MESSAGE_TYPE_LOG, Manifest, Message, MessageBuilder,
-    NoticeLevel, RunMode, TransportNotice, Value,
+    MESSAGE_TYPE_EVENT, MESSAGE_TYPE_LOG, Manifest, Message, MessageBuilder, RunMode, Value,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,44 +20,6 @@ const CONTROL_CHANNEL_CAPACITY: usize = 64;
 const MESSAGE_CHANNEL_CAPACITY: usize = 10_000;
 /// Capacity for the broadcast channel that fans messages out to subscribers.
 const BROADCAST_CHANNEL_CAPACITY: usize = 10_000;
-
-#[derive(Debug, Clone, Copy)]
-pub enum LogLevel {
-    Info,
-    Warning,
-    Error,
-    Debug,
-}
-
-impl LogLevel {
-    fn color(&self) -> Color {
-        match self {
-            LogLevel::Info => Color::Primary,
-            LogLevel::Warning => Color::Tertiary,
-            LogLevel::Error => Color::Error,
-            LogLevel::Debug => Color::OnSurfaceVariant,
-        }
-    }
-
-    fn prefix(&self) -> &'static str {
-        match self {
-            LogLevel::Info => "INFO",
-            LogLevel::Warning => "WARN",
-            LogLevel::Error => "ERROR",
-            LogLevel::Debug => "DEBUG",
-        }
-    }
-}
-
-impl From<NoticeLevel> for LogLevel {
-    fn from(level: NoticeLevel) -> Self {
-        match level {
-            NoticeLevel::Info => LogLevel::Info,
-            NoticeLevel::Warning => LogLevel::Warning,
-            NoticeLevel::Error => LogLevel::Error,
-        }
-    }
-}
 
 /// Public API handle for the engine, implemented with the actor pattern.
 ///
@@ -224,25 +186,8 @@ impl Engine {
         if matches!(level, LogLevel::Debug) && !self.is_debug {
             return;
         }
-        let decoration = Decoration {
-            bold: matches!(level, LogLevel::Error | LogLevel::Warning),
-            italic: false,
-            underline: false,
-            strikethrough: false,
-            color: level.color(),
-            background: Color::Transparent,
-        };
-        let log_content = format!("[{}] {}", level.prefix(), message);
-        let content = Content {
-            content_type: ContentType::RichText,
-            decoration,
-            payload: log_content.into_bytes(),
-            label: None,
-        };
-        let msg = MessageBuilder::new()
-            .message_type(MESSAGE_TYPE_LOG)
+        let msg = MessageBuilder::log(level, message)
             .connection_id(connection_id)
-            .contents(vec![content])
             .build();
         self.broadcast(msg);
     }
@@ -422,11 +367,26 @@ impl EngineRef {
         self.0.log(LogLevel::Error, message);
     }
 
-    /// Broadcast a transport lifecycle notice as a log line attributed to the
-    /// connection that produced it.
-    pub(crate) fn notice(&self, connection_id: u32, notice: TransportNotice) {
-        self.0
-            .log_for(connection_id, notice.level.into(), &notice.text);
+    pub(crate) fn is_debug(&self) -> bool {
+        self.0.is_debug
+    }
+
+    /// Route an out-of-band message a transport pushed through its
+    /// `TransportMessageSender`, attributing it to `connection_id`. Logs are
+    /// broadcast directly; events go through the Lua `on_receive` hook first.
+    /// Anything else is protocol data that belongs in `recv()`, so it is dropped.
+    pub(crate) async fn transport_message(&self, connection_id: u32, mut message: Message) {
+        message.connection_id = connection_id;
+        if message.timestamp == 0 {
+            message.refresh_timestamp();
+        }
+        match message.message_type.as_str() {
+            MESSAGE_TYPE_LOG => self.broadcast(message),
+            MESSAGE_TYPE_EVENT => self.receive_message(message).await,
+            other => self.warn(&format!(
+                "Connection {connection_id}: dropping out-of-band '{other}' message from transport"
+            )),
+        }
     }
 }
 

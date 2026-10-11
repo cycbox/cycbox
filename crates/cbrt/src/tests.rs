@@ -99,15 +99,7 @@ fn decodes_worked_example_with_all_flags_and_crc() {
     let payload: Vec<u8> = samples.iter().flat_map(|v| v.to_le_bytes()).collect();
     assert_eq!(payload.len(), 80);
 
-    let frame = build_frame(
-        0x3,
-        4,
-        Some(0),
-        Some(1_000_000),
-        Some(1000),
-        &payload,
-        true,
-    );
+    let frame = build_frame(0x3, 4, Some(0), Some(1_000_000), Some(1000), &payload, true);
     assert_eq!(frame.len(), 97, "matches the spec's worked example");
 
     let mut buf = BytesMut::from(&frame[..]);
@@ -124,7 +116,10 @@ fn decodes_worked_example_with_all_flags_and_crc() {
     let t1 = msg.values[4].timestamp; // first value of sample 1
     assert_eq!(t1 - t0, 1000);
 
-    assert_eq!(msg.metadata_value("period_us").unwrap().as_u32(), Some(1000));
+    assert_eq!(
+        msg.metadata_value("period_us").unwrap().as_u32(),
+        Some(1000)
+    );
 }
 
 #[test]
@@ -142,7 +137,10 @@ fn rejects_crc_mismatch_and_resyncs_to_next_sync() {
     buf.extend_from_slice(&bad);
     buf.extend_from_slice(&good);
 
-    let msg = codec.decode(&mut buf).unwrap().expect("recovered after resync");
+    let msg = codec
+        .decode(&mut buf)
+        .unwrap()
+        .expect("recovered after resync");
     assert_eq!(msg.values.len(), 4);
     assert_eq!(msg.values[0].as_u8(), Some(9));
     assert_eq!(msg.values[3].as_u8(), Some(6));
@@ -163,7 +161,10 @@ fn drops_garbage_before_sync() {
     let mut buf = BytesMut::new();
     buf.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF, 0x00]);
     buf.extend_from_slice(&frame);
-    let msg = codec.decode(&mut buf).unwrap().expect("found frame after garbage");
+    let msg = codec
+        .decode(&mut buf)
+        .unwrap()
+        .expect("found frame after garbage");
     assert_eq!(msg.values.len(), 1);
     assert!(buf.is_empty());
 }
@@ -173,7 +174,10 @@ fn keep_alive_payload_zero_emits_message() {
     let mut codec = CbrtCodec::default();
     let frame = build_frame(0x0, 1, Some(7), Some(123_456), None, &[], false);
     let mut buf = BytesMut::from(&frame[..]);
-    let msg = codec.decode(&mut buf).unwrap().expect("keep-alive surfaced");
+    let msg = codec
+        .decode(&mut buf)
+        .unwrap()
+        .expect("keep-alive surfaced");
     assert!(msg.values.is_empty());
     assert_eq!(
         msg.metadata_value("datatype").unwrap().value_payload,
@@ -330,13 +334,8 @@ fn timestamp_wrap_detected() {
 #[test]
 fn encode_is_raw_passthrough() {
     let mut codec = CbrtCodec::default();
-    let mut msg = MessageBuilder::tx(
-        0,
-        PayloadType::Binary,
-        b"hello".to_vec(),
-        Vec::<u8>::new(),
-    )
-    .build();
+    let mut msg =
+        MessageBuilder::tx(0, PayloadType::Binary, b"hello".to_vec(), Vec::<u8>::new()).build();
     Codec::encode(&mut codec, &mut msg).unwrap();
     assert_eq!(msg.frame, b"hello".to_vec());
     assert_eq!(msg.payload, b"hello".to_vec());
@@ -383,8 +382,7 @@ fn transformer_skips_when_codec_already_ran() {
     // Simulate codec-already-ran: pre-populate the sentinel metadata + some values.
     let mut msg = build_rx_msg(0, frame);
     msg.metadata.push(Value::builder("datatype").string("u8"));
-    msg.values
-        .push(Value::builder("preexisting").uint8(99));
+    msg.values.push(Value::builder("preexisting").uint8(99));
 
     t.on_receive(&mut msg).unwrap();
 
@@ -424,13 +422,8 @@ fn transformer_rejects_payload_without_sync() {
 #[test]
 fn transformer_on_send_is_noop() {
     let t = CbrtTransformer::new();
-    let mut msg = MessageBuilder::tx(
-        0,
-        PayloadType::Binary,
-        b"hello".to_vec(),
-        b"hello".to_vec(),
-    )
-    .build();
+    let mut msg =
+        MessageBuilder::tx(0, PayloadType::Binary, b"hello".to_vec(), b"hello".to_vec()).build();
     t.on_send(&mut msg).unwrap();
     assert_eq!(msg.payload, b"hello".to_vec());
     assert_eq!(msg.frame, b"hello".to_vec());

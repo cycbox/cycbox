@@ -7,7 +7,7 @@
 
 mod config;
 
-use config::{hw_config, HardwareConfig, TEST_MESSAGE, TEST_TIMEOUT};
+use config::{HardwareConfig, TEST_MESSAGE, TEST_TIMEOUT, hw_config};
 use cycbox_serialport::SerialPortBuilderExt;
 use rstest::rstest;
 use serialport::ClearBuffer;
@@ -106,10 +106,7 @@ async fn test_loopback_clear_buffer(hw_config: HardwareConfig, #[case] buffer: C
     if matches!(buffer, ClearBuffer::Output) {
         // Output clear doesn't affect RX buffer, so drain it manually
         let mut drain_buf = vec![0u8; 1024];
-        let _ = tokio::time::timeout(
-            Duration::from_millis(100),
-            port.read(&mut drain_buf)
-        ).await;
+        let _ = tokio::time::timeout(Duration::from_millis(100), port.read(&mut drain_buf)).await;
     }
 
     // After clearing, subsequent operations should work normally

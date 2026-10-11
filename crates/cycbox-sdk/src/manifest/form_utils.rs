@@ -8,7 +8,11 @@ pub struct FormUtils;
 
 impl FormUtils {
     /// Find a field by group key and field key
-    pub fn find_field<'a>(config: &'a [FormGroup], group_key: &str, field_key: &str) -> Option<&'a FormField> {
+    pub fn find_field<'a>(
+        config: &'a [FormGroup],
+        group_key: &str,
+        field_key: &str,
+    ) -> Option<&'a FormField> {
         config
             .iter()
             .find(|group| group.key == group_key)?
@@ -18,7 +22,11 @@ impl FormUtils {
     }
 
     /// Find a mutable field by group key and field key
-    pub fn find_field_mut<'a>(config: &'a mut [FormGroup], group_key: &str, field_key: &str) -> Option<&'a mut FormField> {
+    pub fn find_field_mut<'a>(
+        config: &'a mut [FormGroup],
+        group_key: &str,
+        field_key: &str,
+    ) -> Option<&'a mut FormField> {
         config
             .iter_mut()
             .find(|group| group.key == group_key)?
@@ -31,27 +39,46 @@ impl FormUtils {
         config.iter().find(|group| group.key == group_key)
     }
 
-    pub fn find_group_mut<'a>(config: &'a mut [FormGroup], group_key: &str) -> Option<&'a mut FormGroup> {
+    pub fn find_group_mut<'a>(
+        config: &'a mut [FormGroup],
+        group_key: &str,
+    ) -> Option<&'a mut FormGroup> {
         config.iter_mut().find(|group| group.key == group_key)
     }
 
     /// Get the value of a field by group key and field key
-    pub fn get_value<'a>(config: &'a [FormGroup], group_key: &str, field_key: &str) -> Option<&'a FormValue> {
+    pub fn get_value<'a>(
+        config: &'a [FormGroup],
+        group_key: &str,
+        field_key: &str,
+    ) -> Option<&'a FormValue> {
         Self::find_field(config, group_key, field_key)?.get_value()
     }
 
     /// Get the multiple values of a field by group key and field key
-    pub fn get_multiple_values<'a>(config: &'a [FormGroup], group_key: &str, field_key: &str) -> Option<&'a Vec<FormValue>> {
+    pub fn get_multiple_values<'a>(
+        config: &'a [FormGroup],
+        group_key: &str,
+        field_key: &str,
+    ) -> Option<&'a Vec<FormValue>> {
         Self::find_field(config, group_key, field_key)?.get_multiple_values()
     }
 
     /// Get text value by group key and field key
-    pub fn get_text_value<'a>(config: &'a [FormGroup], group_key: &str, field_key: &str) -> Option<&'a str> {
+    pub fn get_text_value<'a>(
+        config: &'a [FormGroup],
+        group_key: &str,
+        field_key: &str,
+    ) -> Option<&'a str> {
         Self::find_field(config, group_key, field_key)?.get_text_value()
     }
 
     /// Get integer value by group key and field key
-    pub fn get_integer_value(config: &[FormGroup], group_key: &str, field_key: &str) -> Option<i64> {
+    pub fn get_integer_value(
+        config: &[FormGroup],
+        group_key: &str,
+        field_key: &str,
+    ) -> Option<i64> {
         Self::find_field(config, group_key, field_key)?.get_integer_value()
     }
 
@@ -61,125 +88,213 @@ impl FormUtils {
     }
 
     /// Get boolean value by group key and field key
-    pub fn get_boolean_value(config: &[FormGroup], group_key: &str, field_key: &str) -> Option<bool> {
+    pub fn get_boolean_value(
+        config: &[FormGroup],
+        group_key: &str,
+        field_key: &str,
+    ) -> Option<bool> {
         Self::find_field(config, group_key, field_key)?.get_boolean_value()
     }
 
     /// Get multiple text values by group key and field key
-    pub fn get_multiple_text_values<'a>(config: &'a [FormGroup], group_key: &str, field_key: &str) -> Vec<&'a str> {
+    pub fn get_multiple_text_values<'a>(
+        config: &'a [FormGroup],
+        group_key: &str,
+        field_key: &str,
+    ) -> Vec<&'a str> {
         Self::find_field(config, group_key, field_key)
             .map_or(Vec::new(), |field| field.get_multiple_text_values())
     }
 
     /// Get text list (owned strings) by group key and field key
-    pub fn get_text_list_value(config: &[FormGroup], group_key: &str, field_key: &str) -> Vec<String> {
-        Self::find_field(config, group_key, field_key)
-            .map_or(Vec::new(), |field| field.get_multiple_text_values().into_iter().map(|s| s.to_string()).collect())
+    pub fn get_text_list_value(
+        config: &[FormGroup],
+        group_key: &str,
+        field_key: &str,
+    ) -> Vec<String> {
+        Self::find_field(config, group_key, field_key).map_or(Vec::new(), |field| {
+            field
+                .get_multiple_text_values()
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect()
+        })
     }
 
     /// Get multiple integer values by group key and field key
-    pub fn get_multiple_integer_values(config: &[FormGroup], group_key: &str, field_key: &str) -> Vec<i64> {
+    pub fn get_multiple_integer_values(
+        config: &[FormGroup],
+        group_key: &str,
+        field_key: &str,
+    ) -> Vec<i64> {
         Self::find_field(config, group_key, field_key)
             .map_or(Vec::new(), |field| field.get_multiple_integer_values())
     }
 
     /// Get multiple float values by group key and field key
-    pub fn get_multiple_float_values(config: &[FormGroup], group_key: &str, field_key: &str) -> Vec<f64> {
+    pub fn get_multiple_float_values(
+        config: &[FormGroup],
+        group_key: &str,
+        field_key: &str,
+    ) -> Vec<f64> {
         Self::find_field(config, group_key, field_key)
             .map_or(Vec::new(), |field| field.get_multiple_float_values())
     }
 
     /// Get multiple boolean values by group key and field key
-    pub fn get_multiple_boolean_values(config: &[FormGroup], group_key: &str, field_key: &str) -> Vec<bool> {
+    pub fn get_multiple_boolean_values(
+        config: &[FormGroup],
+        group_key: &str,
+        field_key: &str,
+    ) -> Vec<bool> {
         Self::find_field(config, group_key, field_key)
             .map_or(Vec::new(), |field| field.get_multiple_boolean_values())
     }
 
     /// Set the value of a field by group key and field key
-    pub fn set_value(config: &mut [FormGroup], group_key: &str, field_key: &str, value: FormValue) -> Result<(), String> {
+    pub fn set_value(
+        config: &mut [FormGroup],
+        group_key: &str,
+        field_key: &str,
+        value: FormValue,
+    ) -> Result<(), String> {
         match Self::find_field_mut(config, group_key, field_key) {
             Some(field) => {
                 field.set_value(value);
                 Ok(())
             }
-            None => Err(format!("Field '{field_key}' not found in group '{group_key}'")),
+            None => Err(format!(
+                "Field '{field_key}' not found in group '{group_key}'"
+            )),
         }
     }
 
-    pub fn set_integer_value(config: &mut [FormGroup], group_key: &str, field_key: &str, value: i64) -> Result<(), String> {
+    pub fn set_integer_value(
+        config: &mut [FormGroup],
+        group_key: &str,
+        field_key: &str,
+        value: i64,
+    ) -> Result<(), String> {
         match Self::find_field_mut(config, group_key, field_key) {
             Some(field) => {
                 field.set_integer_value(value);
                 Ok(())
             }
-            None => Err(format!("Field '{field_key}' not found in group '{group_key}'")),
+            None => Err(format!(
+                "Field '{field_key}' not found in group '{group_key}'"
+            )),
         }
     }
 
-    pub fn set_float_value(config: &mut [FormGroup], group_key: &str, field_key: &str, value: f64) -> Result<(), String> {
+    pub fn set_float_value(
+        config: &mut [FormGroup],
+        group_key: &str,
+        field_key: &str,
+        value: f64,
+    ) -> Result<(), String> {
         match Self::find_field_mut(config, group_key, field_key) {
             Some(field) => {
                 field.set_float_value(value);
                 Ok(())
             }
-            None => Err(format!("Field '{field_key}' not found in group '{group_key}'")),
+            None => Err(format!(
+                "Field '{field_key}' not found in group '{group_key}'"
+            )),
         }
     }
 
-    pub fn set_boolean_value(config: &mut [FormGroup], group_key: &str, field_key: &str, value: bool) -> Result<(), String> {
+    pub fn set_boolean_value(
+        config: &mut [FormGroup],
+        group_key: &str,
+        field_key: &str,
+        value: bool,
+    ) -> Result<(), String> {
         match Self::find_field_mut(config, group_key, field_key) {
             Some(field) => {
                 field.set_boolean_value(value);
                 Ok(())
             }
-            None => Err(format!("Field '{field_key}' not found in group '{group_key}'")),
+            None => Err(format!(
+                "Field '{field_key}' not found in group '{group_key}'"
+            )),
         }
     }
 
-    pub fn set_text_value(config: &mut [FormGroup], group_key: &str, field_key: &str, value: String) -> Result<(), String> {
+    pub fn set_text_value(
+        config: &mut [FormGroup],
+        group_key: &str,
+        field_key: &str,
+        value: String,
+    ) -> Result<(), String> {
         match Self::find_field_mut(config, group_key, field_key) {
             Some(field) => {
                 field.set_text_value(value);
                 Ok(())
             }
-            None => Err(format!("Field '{field_key}' not found in group '{group_key}'")),
+            None => Err(format!(
+                "Field '{field_key}' not found in group '{group_key}'"
+            )),
         }
     }
 
-    pub fn set_multiple_values(config: &mut [FormGroup], group_key: &str, field_key: &str, values: Vec<FormValue>) -> Result<(), String> {
+    pub fn set_multiple_values(
+        config: &mut [FormGroup],
+        group_key: &str,
+        field_key: &str,
+        values: Vec<FormValue>,
+    ) -> Result<(), String> {
         match Self::find_field_mut(config, group_key, field_key) {
             Some(field) => {
                 field.set_multiple_values(values);
                 Ok(())
             }
-            None => Err(format!("Field '{field_key}' not found in group '{group_key}'"))
+            None => Err(format!(
+                "Field '{field_key}' not found in group '{group_key}'"
+            )),
         }
     }
 
     /// Append a value to the multiple values of a field by group key and field key
-    pub fn append_value(config: &mut [FormGroup], group_key: &str, field_key: &str, value: FormValue) -> Result<(), String> {
+    pub fn append_value(
+        config: &mut [FormGroup],
+        group_key: &str,
+        field_key: &str,
+        value: FormValue,
+    ) -> Result<(), String> {
         match Self::find_field_mut(config, group_key, field_key) {
             Some(field) => {
                 field.append_value(value);
                 Ok(())
             }
-            None => Err(format!("Field '{field_key}' not found in group '{group_key}'")),
+            None => Err(format!(
+                "Field '{field_key}' not found in group '{group_key}'"
+            )),
         }
     }
 
     /// Append multiple values to the multiple values of a field by group key and field key
-    pub fn append_values(config: &mut [FormGroup], group_key: &str, field_key: &str, values: Vec<FormValue>) -> Result<(), String> {
+    pub fn append_values(
+        config: &mut [FormGroup],
+        group_key: &str,
+        field_key: &str,
+        values: Vec<FormValue>,
+    ) -> Result<(), String> {
         match Self::find_field_mut(config, group_key, field_key) {
             Some(field) => {
                 field.append_values(values);
                 Ok(())
             }
-            None => Err(format!("Field '{field_key}' not found in group '{group_key}'")),
+            None => Err(format!(
+                "Field '{field_key}' not found in group '{group_key}'"
+            )),
         }
     }
 
     /// Get all fields in a group by group key
-    pub fn get_group_fields<'a>(config: &'a [FormGroup], group_key: &str) -> Option<&'a Vec<FormField>> {
+    pub fn get_group_fields<'a>(
+        config: &'a [FormGroup],
+        group_key: &str,
+    ) -> Option<&'a Vec<FormField>> {
         config
             .iter()
             .find(|group| group.key == group_key)
@@ -206,8 +321,14 @@ impl FormUtils {
         let codec_id = Self::get_text_value(configs, "app", "app_codec");
 
         // Try transport group, then codec group, then timeout_codec group
-        for group_key in transport_id.into_iter().chain(codec_id).chain(Some("timeout_codec")) {
-            if let Some(timeout_ms) = Self::get_integer_value(configs, group_key, "with_receive_timeout") {
+        for group_key in transport_id
+            .into_iter()
+            .chain(codec_id)
+            .chain(Some("timeout_codec"))
+        {
+            if let Some(timeout_ms) =
+                Self::get_integer_value(configs, group_key, "with_receive_timeout")
+            {
                 return Duration::from_millis(timeout_ms as u64);
             }
         }

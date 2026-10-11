@@ -26,4 +26,3 @@ pub struct HardwareConfig {
 pub fn hw_config() -> HardwareConfig {
     HardwareConfig::init_from_env().unwrap()
 }
-

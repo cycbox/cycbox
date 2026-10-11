@@ -1,5 +1,5 @@
-use crate::posix::mio_stream::MioStream;
 use crate::SerialControl;
+use crate::posix::mio_stream::MioStream;
 use serialport::{ClearBuffer, SerialPortBuilder};
 use std::io;
 use std::io::{Read, Write};

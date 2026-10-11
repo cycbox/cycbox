@@ -34,9 +34,9 @@ impl Connection {
         self.transport.set_raw_observer(observer);
     }
 
-    /// Install the sink the transport reports lifecycle notices on.
-    pub fn set_notice_sender(&mut self, sender: Option<TransportNoticeSender>) {
-        self.transport.set_notice_sender(sender);
+    /// Install the sink the transport pushes out-of-band log / event messages on.
+    pub fn set_message_sender(&mut self, sender: Option<TransportMessageSender>) {
+        self.transport.set_message_sender(sender);
     }
 
     /// Receive a message from the transport, apply transformer and formatting,

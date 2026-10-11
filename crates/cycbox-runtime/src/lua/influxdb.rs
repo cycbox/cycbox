@@ -17,9 +17,8 @@ fn build_v2_url(
     precision: &str,
 ) -> Result<reqwest::Url, mlua::Error> {
     let base = base_url.trim_end_matches('/');
-    let mut url = reqwest::Url::parse(&format!("{}/api/v2/write", base)).map_err(|e| {
-        mlua::Error::RuntimeError(format!("invalid URL '{}': {}", base_url, e))
-    })?;
+    let mut url = reqwest::Url::parse(&format!("{}/api/v2/write", base))
+        .map_err(|e| mlua::Error::RuntimeError(format!("invalid URL '{}': {}", base_url, e)))?;
     url.query_pairs_mut()
         .append_pair("org", org)
         .append_pair("bucket", bucket)
@@ -35,9 +34,8 @@ fn build_v3_url(
     no_sync: bool,
 ) -> Result<reqwest::Url, mlua::Error> {
     let base = base_url.trim_end_matches('/');
-    let mut url = reqwest::Url::parse(&format!("{}/api/v3/write_lp", base)).map_err(|e| {
-        mlua::Error::RuntimeError(format!("invalid URL '{}': {}", base_url, e))
-    })?;
+    let mut url = reqwest::Url::parse(&format!("{}/api/v3/write_lp", base))
+        .map_err(|e| mlua::Error::RuntimeError(format!("invalid URL '{}': {}", base_url, e)))?;
     url.query_pairs_mut()
         .append_pair("db", db)
         .append_pair("precision", precision)
@@ -57,10 +55,7 @@ async fn post_line_protocol(
     let client = reqwest::Client::new();
     let response = client
         .post(url.clone())
-        .header(
-            reqwest::header::AUTHORIZATION,
-            format!("Token {}", token),
-        )
+        .header(reqwest::header::AUTHORIZATION, format!("Token {}", token))
         .header(reqwest::header::CONTENT_TYPE, "text/plain; charset=utf-8")
         .body(body)
         .send()
@@ -82,9 +77,9 @@ fn table_to_line_bytes(table: &mlua::Table, fn_name: &str) -> Result<Vec<u8>, ml
     }
     let mut bytes = Vec::new();
     for i in 1..=len {
-        let s: mlua::LuaString = table.raw_get(i).map_err(|e| {
-            mlua::Error::RuntimeError(format!("{}: lines[{}]: {}", fn_name, i, e))
-        })?;
+        let s: mlua::LuaString = table
+            .raw_get(i)
+            .map_err(|e| mlua::Error::RuntimeError(format!("{}: lines[{}]: {}", fn_name, i, e)))?;
         let s_bytes = s.as_bytes();
         if s_bytes.is_empty() {
             return Err(mlua::Error::RuntimeError(format!(
@@ -199,7 +194,11 @@ async fn influxdb_batch_write_v2_impl(
     let write_url = build_v2_url(&url, &org, &bucket, &prec)?;
     debug!(
         "[Lua] InfluxDB v2: batch write bucket='{}' org='{}' precision='{}' {} lines {} bytes",
-        bucket, org, prec, line_count, line_bytes.len()
+        bucket,
+        org,
+        prec,
+        line_count,
+        line_bytes.len()
     );
 
     let status = post_line_protocol(&write_url, &token, line_bytes).await?;
@@ -370,7 +369,11 @@ async fn influxdb_write_v3_impl(
     let write_url = build_v3_url(&url, &db, &prec, ap, ns)?;
     debug!(
         "[Lua] InfluxDB v3: write db='{}' precision='{}' accept_partial={} no_sync={} {} bytes",
-        db, prec, ap, ns, line_bytes.len()
+        db,
+        prec,
+        ap,
+        ns,
+        line_bytes.len()
     );
 
     let status = post_line_protocol(&write_url, &token, line_bytes).await?;
@@ -418,7 +421,12 @@ async fn influxdb_batch_write_v3_impl(
     let write_url = build_v3_url(&url, &db, &prec, ap, ns)?;
     debug!(
         "[Lua] InfluxDB v3: batch write db='{}' precision='{}' accept_partial={} no_sync={} {} lines {} bytes",
-        db, prec, ap, ns, line_count, line_bytes.len()
+        db,
+        prec,
+        ap,
+        ns,
+        line_count,
+        line_bytes.len()
     );
 
     let status = post_line_protocol(&write_url, &token, line_bytes).await?;
@@ -623,8 +631,10 @@ pub(super) fn register_influxdb_helpers(lua: &Lua) -> Result<()> {
                 Option<String>,
             )| async move {
                 let line_bytes = line_data.as_bytes().to_vec();
-                Ok(influxdb_write_v2_async_impl(url, token, org, bucket, line_bytes, precision)
-                    .await)
+                Ok(
+                    influxdb_write_v2_async_impl(url, token, org, bucket, line_bytes, precision)
+                        .await,
+                )
             },
         )?,
     )?;
@@ -645,18 +655,18 @@ pub(super) fn register_influxdb_helpers(lua: &Lua) -> Result<()> {
                 mlua::Table,
                 Option<String>,
             )| async move {
-                let line_bytes =
-                    match table_to_line_bytes(&lines, "influxdb_batch_write_v2_async") {
-                        Ok(b) => b,
-                        Err(e) => {
-                            warn!("[Lua] {}", e);
-                            return Ok(false);
-                        }
-                    };
-                Ok(
-                    influxdb_batch_write_v2_async_impl(url, token, org, bucket, line_bytes, precision)
-                        .await,
+                let line_bytes = match table_to_line_bytes(&lines, "influxdb_batch_write_v2_async")
+                {
+                    Ok(b) => b,
+                    Err(e) => {
+                        warn!("[Lua] {}", e);
+                        return Ok(false);
+                    }
+                };
+                Ok(influxdb_batch_write_v2_async_impl(
+                    url, token, org, bucket, line_bytes, precision,
                 )
+                .await)
             },
         )?,
     )?;
@@ -681,8 +691,16 @@ pub(super) fn register_influxdb_helpers(lua: &Lua) -> Result<()> {
                 Option<bool>,
             )| async move {
                 let line_bytes = line_data.as_bytes().to_vec();
-                influxdb_write_v3_impl(url, token, db, line_bytes, precision, accept_partial, no_sync)
-                    .await
+                influxdb_write_v3_impl(
+                    url,
+                    token,
+                    db,
+                    line_bytes,
+                    precision,
+                    accept_partial,
+                    no_sync,
+                )
+                .await
             },
         )?,
     )?;
@@ -707,7 +725,14 @@ pub(super) fn register_influxdb_helpers(lua: &Lua) -> Result<()> {
                 let line_count = lines.raw_len();
                 let line_bytes = table_to_line_bytes(&lines, "influxdb_batch_write_v3")?;
                 influxdb_batch_write_v3_impl(
-                    url, token, db, line_bytes, line_count, precision, accept_partial, no_sync,
+                    url,
+                    token,
+                    db,
+                    line_bytes,
+                    line_count,
+                    precision,
+                    accept_partial,
+                    no_sync,
                 )
                 .await
             },
@@ -732,12 +757,16 @@ pub(super) fn register_influxdb_helpers(lua: &Lua) -> Result<()> {
                 Option<bool>,
             )| async move {
                 let line_bytes = line_data.as_bytes().to_vec();
-                Ok(
-                    influxdb_write_v3_async_impl(
-                        url, token, db, line_bytes, precision, accept_partial, no_sync,
-                    )
-                    .await,
+                Ok(influxdb_write_v3_async_impl(
+                    url,
+                    token,
+                    db,
+                    line_bytes,
+                    precision,
+                    accept_partial,
+                    no_sync,
                 )
+                .await)
             },
         )?,
     )?;
@@ -759,20 +788,24 @@ pub(super) fn register_influxdb_helpers(lua: &Lua) -> Result<()> {
                 Option<bool>,
                 Option<bool>,
             )| async move {
-                let line_bytes =
-                    match table_to_line_bytes(&lines, "influxdb_batch_write_v3_async") {
-                        Ok(b) => b,
-                        Err(e) => {
-                            warn!("[Lua] {}", e);
-                            return Ok(false);
-                        }
-                    };
-                Ok(
-                    influxdb_batch_write_v3_async_impl(
-                        url, token, db, line_bytes, precision, accept_partial, no_sync,
-                    )
-                    .await,
+                let line_bytes = match table_to_line_bytes(&lines, "influxdb_batch_write_v3_async")
+                {
+                    Ok(b) => b,
+                    Err(e) => {
+                        warn!("[Lua] {}", e);
+                        return Ok(false);
+                    }
+                };
+                Ok(influxdb_batch_write_v3_async_impl(
+                    url,
+                    token,
+                    db,
+                    line_bytes,
+                    precision,
+                    accept_partial,
+                    no_sync,
                 )
+                .await)
             },
         )?,
     )?;

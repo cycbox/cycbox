@@ -8,8 +8,7 @@ use super::Value;
 use super::ValueType;
 
 use mlua::{
-    Integer as LuaInteger, MetaMethod, UserData, UserDataFields, UserDataMethods,
-    Value as LuaValue,
+    Integer as LuaInteger, MetaMethod, UserData, UserDataFields, UserDataMethods, Value as LuaValue,
 };
 
 /// Return a short human-readable description of a LuaValue for error messages.
@@ -174,20 +173,15 @@ impl UserData for Message {
         // Message type field (read/write)
         fields.add_field_method_get("message_type", |_, this| Ok(this.message_type.clone()));
 
-        fields.add_field_method_set(
-            "message_type",
-            |_, this, message_type: mlua::LuaString| {
-                this.message_type = message_type
-                    .to_str()
-                    .map_err(|_| {
-                        mlua::Error::RuntimeError(
-                            "message_type: value is not valid UTF-8".to_string(),
-                        )
-                    })?
-                    .to_string();
-                Ok(())
-            },
-        );
+        fields.add_field_method_set("message_type", |_, this, message_type: mlua::LuaString| {
+            this.message_type = message_type
+                .to_str()
+                .map_err(|_| {
+                    mlua::Error::RuntimeError("message_type: value is not valid UTF-8".to_string())
+                })?
+                .to_string();
+            Ok(())
+        });
 
         // Payload type field (read-only, as string)
         fields.add_field_method_get("payload_type", |_, this| {
@@ -339,67 +333,65 @@ impl UserData for Message {
                     ),
                     ValueType::Int16Array => serde_json::Value::Array(
                         val.value_payload
-                            .chunks_exact(2)
-                            .map(|c| {
-                                serde_json::Value::Number(
-                                    i16::from_le_bytes([c[0], c[1]]).into(),
-                                )
-                            })
+                            .as_chunks::<2>()
+                            .0
+                            .iter()
+                            .map(|c| serde_json::Value::Number(i16::from_le_bytes(*c).into()))
                             .collect(),
                     ),
                     ValueType::UInt16Array => serde_json::Value::Array(
                         val.value_payload
-                            .chunks_exact(2)
-                            .map(|c| {
-                                serde_json::Value::Number(
-                                    u16::from_le_bytes([c[0], c[1]]).into(),
-                                )
-                            })
+                            .as_chunks::<2>()
+                            .0
+                            .iter()
+                            .map(|c| serde_json::Value::Number(u16::from_le_bytes(*c).into()))
                             .collect(),
                     ),
                     ValueType::Int32Array => serde_json::Value::Array(
                         val.value_payload
-                            .chunks_exact(4)
-                            .map(|c| {
-                                serde_json::Value::Number(
-                                    i32::from_le_bytes([c[0], c[1], c[2], c[3]]).into(),
-                                )
-                            })
+                            .as_chunks::<4>()
+                            .0
+                            .iter()
+                            .map(|c| serde_json::Value::Number(i32::from_le_bytes(*c).into()))
                             .collect(),
                     ),
                     ValueType::UInt32Array => serde_json::Value::Array(
                         val.value_payload
-                            .chunks_exact(4)
-                            .map(|c| {
-                                serde_json::Value::Number(
-                                    u32::from_le_bytes([c[0], c[1], c[2], c[3]]).into(),
-                                )
-                            })
+                            .as_chunks::<4>()
+                            .0
+                            .iter()
+                            .map(|c| serde_json::Value::Number(u32::from_le_bytes(*c).into()))
                             .collect(),
                     ),
                     ValueType::Int64Array => serde_json::Value::Array(
                         val.value_payload
-                            .chunks_exact(8)
+                            .as_chunks::<8>()
+                            .0
+                            .iter()
                             .map(|c| {
-                                let bytes: [u8; 8] = c.try_into().unwrap();
+                                let bytes: [u8; 8] = *c;
                                 serde_json::Value::Number(i64::from_le_bytes(bytes).into())
                             })
                             .collect(),
                     ),
                     ValueType::UInt64Array => serde_json::Value::Array(
                         val.value_payload
-                            .chunks_exact(8)
+                            .as_chunks::<8>()
+                            .0
+                            .iter()
                             .map(|c| {
-                                let bytes: [u8; 8] = c.try_into().unwrap();
+                                let bytes: [u8; 8] = *c;
                                 serde_json::Value::Number(u64::from_le_bytes(bytes).into())
                             })
                             .collect(),
                     ),
                     ValueType::Float32Array => serde_json::Value::Array(
                         val.value_payload
-                            .chunks_exact(4)
+                            .as_chunks::<4>()
+                            .0
+                            .iter()
                             .map(|c| {
-                                let f = f32::from_le_bytes([c[0], c[1], c[2], c[3]]);
+                                let f = f32::from_le_bytes(*c);
                                 serde_json::Number::from_f64(f as f64)
                                     .map(serde_json::Value::Number)
                                     .unwrap_or(serde_json::Value::Null)
@@ -408,9 +400,11 @@ impl UserData for Message {
                     ),
                     ValueType::Float64Array => serde_json::Value::Array(
                         val.value_payload
-                            .chunks_exact(8)
+                            .as_chunks::<8>()
+                            .0
+                            .iter()
                             .map(|c| {
-                                let bytes: [u8; 8] = c.try_into().unwrap();
+                                let bytes: [u8; 8] = *c;
                                 let f = f64::from_le_bytes(bytes);
                                 serde_json::Number::from_f64(f)
                                     .map(serde_json::Value::Number)
@@ -713,42 +707,36 @@ impl UserData for Message {
                     }
                     ValueType::Int16Array => {
                         let table = lua.create_table()?;
-                        for (i, c) in val.value_payload.chunks_exact(2).enumerate() {
-                            table.set(i + 1, i16::from_le_bytes([c[0], c[1]]) as LuaInteger)?;
+                        for (i, c) in val.value_payload.as_chunks::<2>().0.iter().enumerate() {
+                            table.set(i + 1, i16::from_le_bytes(*c) as LuaInteger)?;
                         }
                         Ok(LuaValue::Table(table))
                     }
                     ValueType::UInt16Array => {
                         let table = lua.create_table()?;
-                        for (i, c) in val.value_payload.chunks_exact(2).enumerate() {
-                            table.set(i + 1, u16::from_le_bytes([c[0], c[1]]) as LuaInteger)?;
+                        for (i, c) in val.value_payload.as_chunks::<2>().0.iter().enumerate() {
+                            table.set(i + 1, u16::from_le_bytes(*c) as LuaInteger)?;
                         }
                         Ok(LuaValue::Table(table))
                     }
                     ValueType::Int32Array => {
                         let table = lua.create_table()?;
-                        for (i, c) in val.value_payload.chunks_exact(4).enumerate() {
-                            table.set(
-                                i + 1,
-                                i32::from_le_bytes([c[0], c[1], c[2], c[3]]) as LuaInteger,
-                            )?;
+                        for (i, c) in val.value_payload.as_chunks::<4>().0.iter().enumerate() {
+                            table.set(i + 1, i32::from_le_bytes(*c) as LuaInteger)?;
                         }
                         Ok(LuaValue::Table(table))
                     }
                     ValueType::UInt32Array => {
                         let table = lua.create_table()?;
-                        for (i, c) in val.value_payload.chunks_exact(4).enumerate() {
-                            table.set(
-                                i + 1,
-                                u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as LuaInteger,
-                            )?;
+                        for (i, c) in val.value_payload.as_chunks::<4>().0.iter().enumerate() {
+                            table.set(i + 1, u32::from_le_bytes(*c) as LuaInteger)?;
                         }
                         Ok(LuaValue::Table(table))
                     }
                     ValueType::Int64Array => {
                         let table = lua.create_table()?;
-                        for (i, c) in val.value_payload.chunks_exact(8).enumerate() {
-                            let bytes: [u8; 8] = c.try_into().unwrap();
+                        for (i, c) in val.value_payload.as_chunks::<8>().0.iter().enumerate() {
+                            let bytes: [u8; 8] = *c;
                             let v = i64::from_le_bytes(bytes);
                             match LuaInteger::try_from(v) {
                                 Ok(n) => table.set(i + 1, LuaValue::Integer(n))?,
@@ -759,8 +747,8 @@ impl UserData for Message {
                     }
                     ValueType::UInt64Array => {
                         let table = lua.create_table()?;
-                        for (i, c) in val.value_payload.chunks_exact(8).enumerate() {
-                            let bytes: [u8; 8] = c.try_into().unwrap();
+                        for (i, c) in val.value_payload.as_chunks::<8>().0.iter().enumerate() {
+                            let bytes: [u8; 8] = *c;
                             let v = u64::from_le_bytes(bytes);
                             if v <= LuaInteger::MAX as u64 {
                                 table.set(i + 1, LuaValue::Integer(v as LuaInteger))?;
@@ -772,16 +760,16 @@ impl UserData for Message {
                     }
                     ValueType::Float32Array => {
                         let table = lua.create_table()?;
-                        for (i, c) in val.value_payload.chunks_exact(4).enumerate() {
-                            let f = f32::from_le_bytes([c[0], c[1], c[2], c[3]]);
+                        for (i, c) in val.value_payload.as_chunks::<4>().0.iter().enumerate() {
+                            let f = f32::from_le_bytes(*c);
                             table.set(i + 1, f as f64)?;
                         }
                         Ok(LuaValue::Table(table))
                     }
                     ValueType::Float64Array => {
                         let table = lua.create_table()?;
-                        for (i, c) in val.value_payload.chunks_exact(8).enumerate() {
-                            let bytes: [u8; 8] = c.try_into().unwrap();
+                        for (i, c) in val.value_payload.as_chunks::<8>().0.iter().enumerate() {
+                            let bytes: [u8; 8] = *c;
                             table.set(i + 1, f64::from_le_bytes(bytes))?;
                         }
                         Ok(LuaValue::Table(table))
@@ -911,42 +899,36 @@ impl UserData for Message {
                     }
                     ValueType::Int16Array => {
                         let table = lua.create_table()?;
-                        for (i, c) in val.value_payload.chunks_exact(2).enumerate() {
-                            table.set(i + 1, i16::from_le_bytes([c[0], c[1]]) as LuaInteger)?;
+                        for (i, c) in val.value_payload.as_chunks::<2>().0.iter().enumerate() {
+                            table.set(i + 1, i16::from_le_bytes(*c) as LuaInteger)?;
                         }
                         Ok(LuaValue::Table(table))
                     }
                     ValueType::UInt16Array => {
                         let table = lua.create_table()?;
-                        for (i, c) in val.value_payload.chunks_exact(2).enumerate() {
-                            table.set(i + 1, u16::from_le_bytes([c[0], c[1]]) as LuaInteger)?;
+                        for (i, c) in val.value_payload.as_chunks::<2>().0.iter().enumerate() {
+                            table.set(i + 1, u16::from_le_bytes(*c) as LuaInteger)?;
                         }
                         Ok(LuaValue::Table(table))
                     }
                     ValueType::Int32Array => {
                         let table = lua.create_table()?;
-                        for (i, c) in val.value_payload.chunks_exact(4).enumerate() {
-                            table.set(
-                                i + 1,
-                                i32::from_le_bytes([c[0], c[1], c[2], c[3]]) as LuaInteger,
-                            )?;
+                        for (i, c) in val.value_payload.as_chunks::<4>().0.iter().enumerate() {
+                            table.set(i + 1, i32::from_le_bytes(*c) as LuaInteger)?;
                         }
                         Ok(LuaValue::Table(table))
                     }
                     ValueType::UInt32Array => {
                         let table = lua.create_table()?;
-                        for (i, c) in val.value_payload.chunks_exact(4).enumerate() {
-                            table.set(
-                                i + 1,
-                                u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as LuaInteger,
-                            )?;
+                        for (i, c) in val.value_payload.as_chunks::<4>().0.iter().enumerate() {
+                            table.set(i + 1, u32::from_le_bytes(*c) as LuaInteger)?;
                         }
                         Ok(LuaValue::Table(table))
                     }
                     ValueType::Int64Array => {
                         let table = lua.create_table()?;
-                        for (i, c) in val.value_payload.chunks_exact(8).enumerate() {
-                            let bytes: [u8; 8] = c.try_into().unwrap();
+                        for (i, c) in val.value_payload.as_chunks::<8>().0.iter().enumerate() {
+                            let bytes: [u8; 8] = *c;
                             let v = i64::from_le_bytes(bytes);
                             match LuaInteger::try_from(v) {
                                 Ok(n) => table.set(i + 1, LuaValue::Integer(n))?,
@@ -957,8 +939,8 @@ impl UserData for Message {
                     }
                     ValueType::UInt64Array => {
                         let table = lua.create_table()?;
-                        for (i, c) in val.value_payload.chunks_exact(8).enumerate() {
-                            let bytes: [u8; 8] = c.try_into().unwrap();
+                        for (i, c) in val.value_payload.as_chunks::<8>().0.iter().enumerate() {
+                            let bytes: [u8; 8] = *c;
                             let v = u64::from_le_bytes(bytes);
                             if v <= LuaInteger::MAX as u64 {
                                 table.set(i + 1, LuaValue::Integer(v as LuaInteger))?;
@@ -970,16 +952,16 @@ impl UserData for Message {
                     }
                     ValueType::Float32Array => {
                         let table = lua.create_table()?;
-                        for (i, c) in val.value_payload.chunks_exact(4).enumerate() {
-                            let f = f32::from_le_bytes([c[0], c[1], c[2], c[3]]);
+                        for (i, c) in val.value_payload.as_chunks::<4>().0.iter().enumerate() {
+                            let f = f32::from_le_bytes(*c);
                             table.set(i + 1, f as f64)?;
                         }
                         Ok(LuaValue::Table(table))
                     }
                     ValueType::Float64Array => {
                         let table = lua.create_table()?;
-                        for (i, c) in val.value_payload.chunks_exact(8).enumerate() {
-                            let bytes: [u8; 8] = c.try_into().unwrap();
+                        for (i, c) in val.value_payload.as_chunks::<8>().0.iter().enumerate() {
+                            let bytes: [u8; 8] = *c;
                             table.set(i + 1, f64::from_le_bytes(bytes))?;
                         }
                         Ok(LuaValue::Table(table))
